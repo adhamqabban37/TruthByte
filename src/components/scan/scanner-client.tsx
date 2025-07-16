@@ -210,6 +210,7 @@ export default function ScannerClient() {
         handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
       } else {
         // If analysis fails, go back to scanning state
+        toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not read the label. Please try again.' });
         setScanState('scanning');
         setIsClear(false);
       }
@@ -218,12 +219,10 @@ export default function ScannerClient() {
         setScanState('scanning');
         setIsClear(false);
     }
-  }, [handleScanSuccess]);
+  }, [handleScanSuccess, toast]);
   
   const startScanner = useCallback(() => {
     if (scanStateRef.current === 'scanning' || scanStateRef.current === 'analyzing') return;
-    
-    setScanState('scanning');
 
     if (!scannerRef.current) {
         scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
@@ -236,12 +235,6 @@ export default function ScannerClient() {
         if (qrboxSize > 300) qrboxSize = 300;
         return { width: qrboxSize, height: qrboxSize / 2 }; // Rectangular for barcodes
     };
-    const labelQrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
-        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-        let qrboxSize = Math.floor(minEdge * 0.8);
-        if (qrboxSize > 400) qrboxSize = 400;
-        return { width: qrboxSize, height: qrboxSize };
-    };
 
     const cameraStartedCallback = () => {
         const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
@@ -253,6 +246,9 @@ export default function ScannerClient() {
             const capabilities = track.getCapabilities();
             if (capabilities.torch) setIsFlashlightAvailable(true);
             if (capabilities.zoom) setZoomCapabilities(capabilities.zoom);
+
+            // Correctly transition to scanning state after camera starts
+            setScanState('scanning');
         }
     }
 
@@ -285,7 +281,7 @@ export default function ScannerClient() {
     } else if (scanMode === 'label') {
         scannerRef.current.start(
           config,
-          { fps: 10, qrbox: labelQrboxFunction, disableFlip: true },
+          { fps: 10, disableFlip: true }, // No qrbox needed for full-view OCR
           () => {}, // We don't care about barcode success in label mode
           () => {}
         ).then(() => {
@@ -308,19 +304,22 @@ export default function ScannerClient() {
 
   useEffect(() => {
     // Start scanner automatically on load
-    setScanState('starting');
+    if (scanState === 'idle') {
+      setScanState('starting');
+    }
     
     // Cleanup on unmount
     return () => {
       stopScanner();
     };
-  }, [stopScanner]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
 
   const handleModeChange = (newMode: ScanMode) => {
     if (newMode === scanMode) return;
-    setScanMode(newMode);
     stopScanner().then(() => {
+      setScanMode(newMode);
       setScanState('starting');
     });
   }

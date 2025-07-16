@@ -3,8 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ChevronRight, DatabaseZap, FileText, Gift, HelpCircle, Languages, Shield, Trash2, MessageSquareWarning } from 'lucide-react';
+import { ChevronRight, FileText, Gift, HelpCircle, Languages, Shield, Trash2, MessageSquareWarning } from 'lucide-react';
 
 export default function SettingsPage() {
   return (

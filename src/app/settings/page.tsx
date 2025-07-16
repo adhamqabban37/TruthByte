@@ -65,7 +65,10 @@ export default function SettingsPage() {
       
        <Card className="mt-6">
         <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Gift className="w-5 h-5 text-primary" /> Remove Ads</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Gift className="w-5 h-5 text-primary" /> 
+              <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-pink-500 to-yellow-500 animate-rainbow-text [background-size:200%_auto]">Unlimited +</span>
+            </CardTitle>
             <CardDescription>Enjoy an ad-free experience and support our mission.</CardDescription>
         </CardHeader>
         <CardContent>

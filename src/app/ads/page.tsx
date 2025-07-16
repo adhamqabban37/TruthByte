@@ -18,7 +18,7 @@ export default function AdsPage() {
             <div className="p-3 mb-4 rounded-full bg-primary/10">
               <Star className="w-8 h-8 text-primary glowing-icon" />
             </div>
-            <CardTitle className="text-3xl font-bold font-headline">
+            <CardTitle className="text-4xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-pink-500 to-yellow-500 animate-rainbow-text [background-size:200%_auto]">
               TruthByte Pro
             </CardTitle>
             <CardDescription className="text-lg">

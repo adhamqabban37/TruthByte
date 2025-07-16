@@ -1,14 +1,14 @@
 'use client';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { ScanLine, Apple, Smoothie, Dumbbell } from 'lucide-react';
+import { ScanLine, Apple, GlassWater, Dumbbell } from 'lucide-react';
 
 export default function Home() {
   return (
     <div className="relative flex flex-col items-center justify-center min-h-full p-4 overflow-hidden md:p-6">
       {/* Floating icons for aesthetic */}
       <Apple className="absolute w-16 h-16 text-green-300/20 top-20 left-10 animate-pulse" />
-      <Smoothie className="absolute w-20 h-20 text-white/10 bottom-24 right-5 animate-pulse delay-500" />
+      <GlassWater className="absolute w-20 h-20 text-white/10 bottom-24 right-5 animate-pulse delay-500" />
       <Dumbbell className="absolute w-12 h-12 text-aqua-300/15 bottom-40 left-16 animate-pulse delay-1000" />
 
       <div className="z-10 w-full max-w-md text-center">

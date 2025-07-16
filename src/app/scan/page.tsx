@@ -1,7 +1,12 @@
 'use client';
 import { useState, useEffect, Suspense } from 'react';
 import { ScannerUI } from '@/components/scan/scanner-ui';
-import { Sheet, SheetContent } from '@/components/ui/sheet';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { AnalysisSummary } from '@/components/scan/analysis-summary';
 import { getProductFromApi } from '@/lib/data-service';
 import type { Product } from '@/lib/types';
@@ -32,7 +37,15 @@ function SummaryPopupContent({
         });
 
         if (fetchedProduct.nutriscore) {
-          fetchedAnalysis.healthRating = fetchedProduct.nutriscore.toUpperCase();
+          // The API returns a letter, so we need to convert it to a number.
+          const scoreMap: { [key: string]: number } = {
+            a: 9,
+            b: 7,
+            c: 5,
+            d: 3,
+            e: 1,
+          };
+          fetchedAnalysis.healthScore = scoreMap[fetchedProduct.nutriscore.toLowerCase()] || fetchedAnalysis.healthScore;
         }
         setAnalysis(fetchedAnalysis);
       }
@@ -86,11 +99,25 @@ export default function ScanPage() {
         <p className="mb-4 text-lg">Place a barcode inside the frame</p>
       </div>
 
-      <Sheet open={!!scannedBarcode} onOpenChange={(open) => !open && handleClosePopup()}>
-        <SheetContent side="bottom" className="h-screen p-0 bg-black/80 backdrop-blur-sm border-none">
+      <Sheet
+        open={!!scannedBarcode}
+        onOpenChange={(open) => !open && handleClosePopup()}
+      >
+        <SheetContent
+          side="bottom"
+          className="h-screen p-0 bg-black/80 backdrop-blur-sm border-none"
+        >
+          <SheetHeader>
+            <SheetTitle className="sr-only">
+              Product Analysis Summary
+            </SheetTitle>
+          </SheetHeader>
           {scannedBarcode && (
             <Suspense fallback={<Skeleton className="w-full h-screen" />}>
-               <SummaryPopupContent barcode={scannedBarcode} onClose={handleClosePopup} />
+              <SummaryPopupContent
+                barcode={scannedBarcode}
+                onClose={handleClosePopup}
+              />
             </Suspense>
           )}
         </SheetContent>

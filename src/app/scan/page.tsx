@@ -179,7 +179,7 @@ export default function ScanPage() {
                 
                 await localScanner.start(
                     { facingMode: 'environment' },
-                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    { fps: 30, qrbox: { width: 250, height: 250 } },
                     async (decodedText) => {
                         if (scanState !== 'scanning') return;
                         setScanState('analyzing');
@@ -229,12 +229,8 @@ export default function ScanPage() {
 
   const switchMode = (newMode: ScanMode) => {
     if (scanMode === newMode) return;
+    setScanState('idle'); // Stop current scanner before switching
     setScanMode(newMode);
-    if(scanState === 'scanning') {
-        // The useEffect will handle the restart
-    } else {
-        setScanState('idle');
-    }
   };
 
   const startScanning = () => {

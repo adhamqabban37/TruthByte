@@ -144,17 +144,10 @@ export default function ScanPage() {
 
         if (scannerRef.current?.isScanning) {
             await scannerRef.current.stop();
+            scannerRef.current.clear();
             scannerRef.current = null; // Clear the instance
         }
         
-        // This is a workaround for a potential bug in html5-qrcode where clear() is needed
-        try {
-            const scanner = new Html5Qrcode(SCANNER_REGION_ID);
-            scanner.clear();
-        } catch (e) {
-            // This may fail if the element is gone, which is fine.
-        }
-
         if (!isSuccessCleanup) {
             if (trackRef.current) {
               if (isFlashlightOn && isFlashlightAvailable) {
@@ -202,11 +195,10 @@ export default function ScanPage() {
   const startScanner = useCallback(async () => {
     setScanState('starting');
     try {
+      // Use flexible constraints to support more devices
       const constraints = {
         video: {
           facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
           focusMode: 'continuous',
         }
       };

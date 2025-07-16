@@ -98,8 +98,8 @@ export default function ScanPage() {
   }, []);
 
   const handleBarcodeScan = useCallback(async (decodedText: string) => {
-    await stopScanner();
     setScanState('analyzing');
+    await stopScanner();
     console.log(`Scanned barcode: ${decodedText}`);
 
     try {
@@ -117,7 +117,7 @@ export default function ScanPage() {
       }
     } catch (err) {
       console.error("Barcode analysis failed:", err);
-      toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong.' });
+      toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong during analysis.' });
       setScanState('error');
     }
   }, [stopScanner, toast]);
@@ -152,35 +152,36 @@ export default function ScanPage() {
     setScanState('analyzing');
     const video = document.querySelector(`#${SCANNER_REGION_ID} video`) as HTMLVideoElement;
     if (!video || !canvasRef.current) {
+        toast({ variant: 'destructive', title: 'Capture Error', description: 'Could not find video element to capture.' });
         setScanState('error');
         return;
     };
 
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext('2d');
-    context?.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUri = canvas.toDataURL('image/jpeg');
-
-    await stopScanner();
-
     try {
-        const result = await analyzeProductLabel({ photoDataUri: dataUri });
-        if (result.method !== 'none' && result.analysis) {
-          setScanResult(result);
-          setShowPopup(true);
-        } else {
-          toast({
-            variant: 'destructive',
-            title: 'Analysis Failed',
-            description: 'We couldn\'t read the label. Please try again.',
-          });
-          setScanState('idle');
-        }
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext('2d');
+      context?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUri = canvas.toDataURL('image/jpeg');
+      
+      await stopScanner();
+
+      const result = await analyzeProductLabel({ photoDataUri: dataUri });
+      if (result.method !== 'none' && result.analysis) {
+        setScanResult(result);
+        setShowPopup(true);
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Analysis Failed',
+          description: 'We couldn\'t read the label. Please try again.',
+        });
+        setScanState('idle');
+      }
     } catch (err) {
         console.error("OCR analysis failed:", err);
-        toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong.' });
+        toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong during analysis.' });
         setScanState('error');
     }
   };
@@ -301,7 +302,7 @@ export default function ScanPage() {
         </div>
       )}
 
-      {scanState === 'idle' && (
+      {scanState === 'idle' && hasCameraPermission && (
         <div className="absolute z-20 flex flex-col items-center gap-4 text-center text-foreground bottom-10 px-4">
             <p className="text-sm text-muted-foreground">If the product has no barcode, start the scan then tap "Scan Label"</p>
         </div>

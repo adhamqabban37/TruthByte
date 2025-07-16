@@ -48,3 +48,11 @@ export const AnalyzeProductLabelOutputSchema = z.object({
 export type AnalyzeProductLabelOutput = z.infer<
   typeof AnalyzeProductLabelOutputSchema
 >;
+
+export const AnalyzeBarcodeOutputSchema = AnalyzeProductLabelOutputSchema;
+export type AnalyzeBarcodeOutput = z.infer<typeof AnalyzeBarcodeOutputSchema>;
+
+export const AnalyzeBarcodeInputSchema = z.object({
+    barcode: z.string().describe("The product barcode value.")
+});
+export type AnalyzeBarcodeInput = z.infer<typeof AnalyzeBarcodeInputSchema>;

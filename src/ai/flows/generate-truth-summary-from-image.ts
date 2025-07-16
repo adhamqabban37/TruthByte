@@ -13,7 +13,7 @@ import { z } from 'genkit';
 import {
   GenerateTruthSummaryOutput,
   GenerateTruthSummaryOutputSchema,
-} from './generate-truth-summary';
+} from './shared';
 
 const GenerateTruthSummaryFromImageInputSchema = z.object({
   photoDataUri: z

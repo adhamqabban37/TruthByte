@@ -36,12 +36,29 @@ const prompt = ai.definePrompt({
   name: 'analyzeProductLabelPrompt',
   input: { schema: AnalyzeProductLabelInputSchema },
   output: { schema: GenerateTruthSummaryOutputSchema },
-  prompt: `You are an AI system inside a mobile app that scans product packaging. Your goal is to instantly identify and summarize key information from a product.
-Analyze the image provided and use OCR (Optical Character Recognition) to extract ingredients, nutritional information, and any warnings.
+  prompt: `You are an AI nutrition and ingredient analysis engine inside a mobile app. Your job is to provide a fast, reliable summary of any product by analyzing its label from an image. Follow these steps precisely:
 
-Your priority is speed. Generate a fast, simple, human-readable summary.
+Label First:
+Prioritize reading the visible label text from the image using OCR. Focus on ingredients, nutrition facts, allergen warnings, and claims like 'organic', 'non-GMO', or 'sugar-free'.
 
-Highlight key ingredients, point out any unhealthy additives, allergens, or red flags. Provide a quick health rating if possible.
+Ingredient Evaluation:
+Flag any of the following as low-quality or red-flag:
+- Added sugars (high fructose corn syrup, cane sugar, etc.)
+- Artificial sweeteners (aspartame, sucralose)
+- Artificial flavors/colors
+- Processed oils (palm oil, canola oil, etc.)
+- Excess sodium, saturated fats
+
+Sustainability & Quality Boosters (add points):
+- Organic-certified, clean-label, whole-food ingredients
+- Plant-based, non-GMO, low sugar/sodium/fat
+- Locally sourced or fair-trade items
+
+Health Rating Scale (1 to 10):
+Use a scalable and transparent rating system.
+1 = ultra-processed, low-nutrition
+10 = clean, organic, nutritionally dense
+Provide reasoning for the score.
 
 Analyze this image: {{media url=photoDataUri}}
 

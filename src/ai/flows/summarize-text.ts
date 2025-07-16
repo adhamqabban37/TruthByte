@@ -68,6 +68,7 @@ const summarizeTextFlow = ai.defineFlow(
       const { output } = await prompt(input);
       
       if (!output || !output.summary) {
+        // This indicates the AI could not extract meaningful info.
         return {};
       }
 

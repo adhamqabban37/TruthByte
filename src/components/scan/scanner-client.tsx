@@ -64,7 +64,7 @@ function SummaryPopupContent({
   }
 
   const product: Product = {
-    barcode: scanResult.method === 'barcode' ? (productName || 'barcode-product') : 'ocr-product',
+    barcode: scanResult.method === 'barcode' && productName ? productName : 'ocr-product',
     name: productName || 'Analyzed Product',
     brand: productBrand || 'From your camera',
     imageUrl: productImageUrl || 'https://placehold.co/400x400.png',
@@ -106,6 +106,29 @@ export default function ScannerClient() {
   useEffect(() => {
     scanStateRef.current = scanState;
   }, [scanState]);
+  
+  const handleScanSuccess = useCallback((result: AnalyzeOutput) => {
+    if (scanStateRef.current !== 'analyzing') {
+        // Avoid processing multiple results for the same scan
+        return;
+    }
+    
+    if (result.method === 'none' || !result.analysis) {
+        console.warn("Analysis failed or returned no data.", result.error);
+        toast({
+            variant: 'destructive',
+            title: 'Analysis Failed',
+            description: result.error || 'Could not analyze the product. Please try again.',
+        });
+        setScanState('scanning');
+        setIsClear(false);
+        return;
+    }
+    
+    setScanState('success');
+    setScanResult(result);
+    setShowPopup(true);
+  }, [toast]);
 
   const stopScanner = useCallback(async () => {
     if (ocrIntervalRef.current) {
@@ -119,6 +142,7 @@ export default function ScannerClient() {
         } catch(e) { console.warn("Could not stop barcode scanner", e) }
     }
     
+    // Stop the camera track if it exists
     if (videoTrackRef.current) {
       if (isFlashlightOn) {
         try {
@@ -154,20 +178,6 @@ export default function ScannerClient() {
     });
   }, [stopScanner, scanMode]);
 
-  const handleScanSuccess = useCallback((result: AnalyzeOutput) => {
-    if (scanStateRef.current === 'success' || scanStateRef.current === 'analyzing') {
-       if (result.method === 'none' || !result.analysis) {
-         setScanState('scanning');
-         setIsClear(false);
-         return;
-       }
-    } else {
-        return;
-    }
-    setScanState('success');
-    setScanResult(result);
-    setShowPopup(true);
-  }, []);
 
   const handleCaptureLabel = useCallback(async () => {
     if (scanStateRef.current !== 'scanning') return;
@@ -175,8 +185,6 @@ export default function ScannerClient() {
     const videoEl = videoElRef.current;
     if (!videoEl) return;
     
-    if(scanStateRef.current === 'analyzing') return;
-
     const canvas = document.createElement('canvas');
     canvas.width = videoEl.videoWidth;
     canvas.height = videoEl.videoHeight;
@@ -201,6 +209,7 @@ export default function ScannerClient() {
       if (result.analysis) {
         handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
       } else {
+        // If analysis fails, go back to scanning state
         setScanState('scanning');
         setIsClear(false);
       }
@@ -213,6 +222,7 @@ export default function ScannerClient() {
   
   const startScanner = useCallback(() => {
     if (scanStateRef.current === 'scanning' || scanStateRef.current === 'analyzing') return;
+    
     setScanState('scanning');
 
     if (!scannerRef.current) {
@@ -229,6 +239,7 @@ export default function ScannerClient() {
     const cameraStartedCallback = () => {
         const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
         if (videoEl && videoEl.srcObject instanceof MediaStream) {
+            videoEl.play().catch(err => console.error("Video play failed", err));
             videoElRef.current = videoEl;
             const track = videoEl.srcObject.getVideoTracks()[0];
             videoTrackRef.current = track;
@@ -289,16 +300,15 @@ export default function ScannerClient() {
   }, [scanState, startScanner]);
 
   useEffect(() => {
+    // Start scanner automatically on load
+    setScanState('starting');
+    
     // Cleanup on unmount
     return () => {
       stopScanner();
     };
   }, [stopScanner]);
 
-  useEffect(() => {
-    // Start scanner automatically on load
-    setScanState('starting');
-  }, []);
 
   const handleModeChange = (newMode: ScanMode) => {
     if (newMode === scanMode) return;
@@ -482,6 +492,15 @@ export default function ScannerClient() {
             <SheetTitle className="sr-only">
               Product Analysis Summary
             </SheetTitle>
+            <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-4 top-4 z-10 text-white bg-white/10 hover:bg-white/20 rounded-full"
+                onClick={resetScanner}
+            >
+                <X className="w-5 h-5" />
+                <span className="sr-only">Close</span>
+            </Button>
           </SheetHeader>
           {scanResult && (
             <SummaryPopupContent

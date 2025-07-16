@@ -40,7 +40,7 @@ const analyzeBarcodeFlow = ai.defineFlow(
 
       if (!productInfo) {
         console.log(`No product found for barcode: ${barcode}`);
-        return { method: 'none' };
+        return { method: 'none', error: 'Product not found.' };
       }
 
       const ingredients = productInfo.ingredients;
@@ -53,7 +53,8 @@ const analyzeBarcodeFlow = ai.defineFlow(
           productName: productInfo.name,
           productBrand: productInfo.brand,
           productImageUrl: productInfo.imageUrl,
-          analysis: undefined // No ingredients to analyze
+          analysis: undefined, // No ingredients to analyze
+          error: 'Product found, but no ingredient data available for analysis.'
         };
       }
       

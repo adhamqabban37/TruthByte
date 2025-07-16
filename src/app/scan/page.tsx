@@ -14,7 +14,7 @@ import {
   AnalyzeProductLabelOutput,
 } from '@/ai/flows/analyze-product-label';
 import { analyzeBarcode } from '@/ai/flows/analyze-barcode';
-import { Loader2, ScanBarcode, ScanLine, X, Zap, ZapOff, ZoomIn, ZoomOut } from 'lucide-react';
+import { Camera, Loader2, ScanLine, X, Zap, ZapOff, ZoomIn, ZoomOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -99,7 +99,6 @@ export default function ScanPage() {
 
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
@@ -107,11 +106,6 @@ export default function ScanPage() {
   const { toast } = useToast();
 
   const stopScanner = useCallback(async (isSuccessCleanup = false) => {
-    if (ocrIntervalRef.current) {
-        clearInterval(ocrIntervalRef.current);
-        ocrIntervalRef.current = null;
-    }
-
     if (scannerRef.current?.isScanning) {
       try {
         await scannerRef.current.stop();
@@ -193,7 +187,7 @@ export default function ScanPage() {
       
       qrCodeScanner.start(
         { facingMode: 'environment' },
-        { fps: 30, qrbox: { width: 300, height: 150 } },
+        { fps: 30, qrbox: { width: 300, height: 150 }, showTorchButtonIfSupported: false },
         async (decodedText) => {
            if (scanState === 'scanning') {
              setScanState('analyzing');
@@ -218,13 +212,41 @@ export default function ScanPage() {
       setScanState('permission_denied');
     }
   }, [toast, handleScanSuccess, scanState]);
+  
+  const handleCaptureLabel = useCallback(async () => {
+    if (scanState !== 'scanning' || !videoRef.current || !canvasRef.current) {
+      return;
+    }
+    setScanState('analyzing');
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (context) {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUri = canvas.toDataURL('image/jpeg');
+
+        try {
+            const result = await analyzeProductLabel({ photoDataUri: dataUri });
+            handleScanSuccess(result);
+        } catch (e) {
+            console.error("Label analysis failed:", e);
+            toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not analyze the label. Please try again.' });
+            setScanState('scanning'); // Return to scanning state on failure
+        }
+    } else {
+        setScanState('scanning');
+    }
+  }, [scanState, toast, handleScanSuccess]);
+
 
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
     setScanResult(null);
-    setScanState('scanning'); // Go back to scanning mode
-    startScanner();
-  }, [startScanner]);
+    stopScanner().then(startScanner);
+  }, [startScanner, stopScanner]);
 
   const toggleFlashlight = useCallback(() => {
     if (trackRef.current && isFlashlightAvailable) {
@@ -321,7 +343,7 @@ export default function ScanPage() {
              <div className="absolute inset-0 z-10 flex flex-col items-center justify-between p-4 pointer-events-none">
                  <div className="flex justify-between w-full pointer-events-auto">
                     {/* Zoom controls */}
-                    {zoomCapabilities && (
+                    {zoomCapabilities ? (
                         <div className="flex items-center gap-1 p-1 rounded-full bg-black/30">
                             <Button size="icon" variant="ghost" className="text-white rounded-full" onClick={() => handleZoomChange(zoomLevel - zoomCapabilities.step)}>
                                 <ZoomOut className="w-6 h-6" />
@@ -333,7 +355,7 @@ export default function ScanPage() {
                                 <ZoomIn className="w-6 h-6" />
                             </Button>
                         </div>
-                    )}
+                    ) : <div/>}
                     {/* Flashlight toggle */}
                     {isFlashlightAvailable && (
                       <Button
@@ -368,7 +390,7 @@ export default function ScanPage() {
                       isSuccess && "border-green-400",
                       { 'box-shadow': '0 0 0 9999px rgba(0,0,0,0.5)' }
                  )}>
-                    {!isSuccess && (
+                    {!isSuccess && scanState === 'scanning' && (
                        <>
                          <div className={styles.scanner_wave}></div>
                          <div className={styles.scanner_wave}></div>
@@ -379,9 +401,21 @@ export default function ScanPage() {
 
 
                  <div className="flex flex-col items-center w-full gap-4 pt-4 pointer-events-auto">
-                    <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
-                        Align product in the circle
-                    </p>
+                     {scanState === 'scanning' && (
+                       <>
+                        <Button
+                            size="lg"
+                            className="w-20 h-20 rounded-full shadow-lg"
+                            onClick={handleCaptureLabel}
+                        >
+                            <Camera className="w-8 h-8"/>
+                            <span className="sr-only">Capture Label</span>
+                        </Button>
+                        <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
+                            Align product in the circle
+                        </p>
+                      </>
+                    )}
                  </div>
               </div>
         )}
@@ -425,3 +459,6 @@ export default function ScanPage() {
     </div>
   );
 }
+
+
+    

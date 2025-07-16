@@ -91,7 +91,6 @@ export default function ScanPage() {
   const [showPopup, setShowPopup] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   
-  // Camera feature states
   const [isFlashlightOn, setIsFlashlightOn] = useState(false);
   const [isFlashlightAvailable, setIsFlashlightAvailable] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -104,7 +103,6 @@ export default function ScanPage() {
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
 
   const { toast } = useToast();
@@ -142,21 +140,17 @@ export default function ScanPage() {
             abortControllerRef.current.abort();
             abortControllerRef.current = null;
         }
-         if (ocrIntervalRef.current) {
-            clearInterval(ocrIntervalRef.current);
-            ocrIntervalRef.current = null;
-        }
 
         if (scannerRef.current?.isScanning) {
             await scannerRef.current.stop();
-            scannerRef.current.clear();
-            scannerRef.current = null;
         }
         
         if (!isSuccessCleanup) {
             if (trackRef.current) {
               if (isFlashlightOn && isFlashlightAvailable) {
-                await trackRef.current.applyConstraints({ advanced: [{ torch: false }] });
+                try {
+                    await trackRef.current.applyConstraints({ advanced: [{ torch: false }] });
+                } catch(e) { console.warn("Could not turn off torch", e)}
               }
               trackRef.current.stop();
               trackRef.current = null;
@@ -164,9 +158,14 @@ export default function ScanPage() {
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(track => track.stop());
                 streamRef.current = null;
-                 if (videoRef.current) {
-                    videoRef.current.srcObject = null;
-                }
+            }
+            if (videoRef.current) {
+              videoRef.current.srcObject = null;
+            }
+
+            if (scannerRef.current) {
+              scannerRef.current.clear();
+              scannerRef.current = null;
             }
             
             setScanState('idle');
@@ -182,36 +181,44 @@ export default function ScanPage() {
   }, [isFlashlightOn, isFlashlightAvailable]);
 
   const handleScanSuccess = useCallback((result: AnalyzeProductLabelOutput) => {
-    if (result.method === 'none' || scanState === 'analyzing' || scanState === 'success') {
+    if (result.method === 'none' || scanStateRef.current !== 'scanning') {
         return;
     }
+    stopScanner(true);
     setScanState('success');
     setIsSuccess(true);
-    stopScanner(true);
     
     setScanResult(result);
     setTimeout(() => {
         setShowPopup(true);
         setIsSuccess(false);
-    }, 500); // Wait for feedback animation before showing popup
+    }, 500);
     
-  }, [stopScanner, scanState]);
+  }, [stopScanner]);
   
   const startCameraAndScanner = useCallback(async () => {
-    if (scanState !== 'idle') return;
+    if (scanStateRef.current !== 'idle') return;
     setScanState('starting');
 
     try {
       const constraints = { 
+        audio: false,
         video: { 
-            facingMode: 'environment',
+            facingMode: { ideal: 'environment' },
             width: { ideal: 1280 },
             height: { ideal: 720 },
-            focusMode: 'continuous'
+            focusMode: 'continuous',
+            frameRate: { ideal: 30 }
         } 
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
       const currentTrack = stream.getVideoTracks()[0];
       trackRef.current = currentTrack;
       const capabilities = currentTrack.getCapabilities();
@@ -219,19 +226,15 @@ export default function ScanPage() {
       if (capabilities.torch) setIsFlashlightAvailable(true);
       if (capabilities.zoom) setZoomCapabilities(capabilities.zoom);
       
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+      if (!scannerRef.current) {
+          scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
       }
+
       setScanState('scanning');
 
-      // Start barcode scanner
-      const qrCodeScanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-      scannerRef.current = qrCodeScanner;
-      
-      qrCodeScanner.start(
+      scannerRef.current.start(
         { facingMode: 'environment' },
-        { fps: 30, qrbox: { width: 300, height: 150 } },
+        { fps: 30, qrbox: { width: 250, height: 250 }, disableFlip: true },
         async (decodedText) => {
           if (scanStateRef.current === 'scanning') {
             setScanState('analyzing');
@@ -247,40 +250,56 @@ export default function ScanPage() {
         (errorMessage) => { /* ignore */ }
       ).catch(err => {
           console.error("Error starting barcode scanner:", err);
+          if (scanStateRef.current === 'scanning') {
+            setScanState('error');
+          }
       });
-
-      // Start OCR interval
-      ocrIntervalRef.current = setInterval(async () => {
-         if (scanStateRef.current !== 'scanning' || !videoRef.current || !canvasRef.current) {
-            return;
-         }
-         const video = videoRef.current;
-         const canvas = canvasRef.current;
-         canvas.width = video.videoWidth;
-         canvas.height = video.videoHeight;
-         const context = canvas.getContext('2d');
-
-         if (context) {
-             try {
-                const dataUri = await compressImage(canvas.toDataURL('image/jpeg'), 800, 0.8);
-                const result = await analyzeProductLabel({ photoDataUri: dataUri });
-                if (result.method !== 'none') {
-                    handleScanSuccess(result);
-                }
-             } catch (e) {
-                 // Ignore errors, let barcode scanner continue
-             }
-         }
-      }, 2000); // OCR scan every 2 seconds
-
     } catch (err) {
       console.error("Error starting camera:", err);
       toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start camera. Please grant permissions and try again.' });
       setScanState('permission_denied');
     }
-  }, [toast, compressImage, handleScanSuccess]);
+  }, [toast, handleScanSuccess]);
   
-  // A ref to hold the current scan state to avoid stale closures in intervals/callbacks
+  const handleCaptureLabel = useCallback(async () => {
+    if (scanStateRef.current !== 'scanning' || !videoRef.current || !canvasRef.current) return;
+    setScanState('analyzing');
+
+    try {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      
+      // Capture a higher resolution snapshot
+      canvas.width = video.videoWidth * 1.5;
+      canvas.height = video.videoHeight * 1.5;
+      
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error("Could not get canvas context");
+
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUri = await compressImage(canvas.toDataURL('image/jpeg', 0.9), 800, 0.7);
+
+      abortControllerRef.current = new AbortController();
+      const result = await analyzeProductLabel({ photoDataUri: dataUri, signal: abortControllerRef.current.signal });
+      
+      if (result.method !== 'none') {
+        handleScanSuccess(result);
+      } else {
+        toast({
+          title: 'No Product Found',
+          description: "Couldn't identify a product from the label. Try getting closer or use the barcode.",
+        });
+        setScanState('scanning');
+      }
+    } catch(e) {
+        if (e instanceof Error && e.name !== 'AbortError') {
+             console.error("Label analysis failed:", e);
+             toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not analyze the label. Please try again.' });
+             setScanState('scanning');
+        }
+    }
+  }, [toast, compressImage, handleScanSuccess]);
+
   const scanStateRef = useRef(scanState);
   useEffect(() => {
     scanStateRef.current = scanState;
@@ -306,9 +325,13 @@ export default function ScanPage() {
 
   const handleZoomChange = (value: number) => {
     if (trackRef.current && zoomCapabilities) {
-        const newZoom = Math.max(zoomCapabilities.min, Math.min(value, zoomCapabilities.max));
-        trackRef.current.applyConstraints({ advanced: [{ zoom: newZoom }] });
-        setZoomLevel(newZoom);
+        try {
+            const newZoom = Math.max(zoomCapabilities.min, Math.min(value, zoomCapabilities.max));
+            trackRef.current.applyConstraints({ advanced: [{ zoom: newZoom }] });
+            setZoomLevel(newZoom);
+        } catch(e) {
+            console.warn("Could not apply zoom", e);
+        }
     }
   }
 
@@ -382,7 +405,7 @@ export default function ScanPage() {
 
   return (
     <div className="flex flex-col items-center justify-center w-full h-full min-h-screen pt-4 bg-background">
-      <div className="relative w-full max-w-md mx-auto overflow-hidden aspect-square rounded-2xl bg-muted flex items-center justify-center">
+      <div className="relative w-full h-[80vh] max-h-screen overflow-hidden bg-muted flex items-center justify-center">
         {renderContent()}
 
         {(scanState !== 'idle' && scanState !== 'permission_denied' && scanState !== 'error') && (
@@ -396,7 +419,6 @@ export default function ScanPage() {
         {(scanState === 'scanning' || scanState === 'success') && (
              <div className="absolute inset-0 z-10 flex flex-col items-center justify-between p-4 pointer-events-none">
                  <div className="flex justify-between w-full pointer-events-auto">
-                    {/* Zoom controls */}
                     {zoomCapabilities ? (
                         <div className="flex items-center gap-1 p-1 rounded-full bg-black/30 backdrop-blur-sm">
                             <Button size="icon" variant="ghost" className="text-white rounded-full hover:bg-white/20" onClick={() => handleZoomChange(zoomLevel - zoomCapabilities.step)}>
@@ -410,7 +432,6 @@ export default function ScanPage() {
                             </Button>
                         </div>
                     ) : <div/>}
-                    {/* Flashlight toggle */}
                     {isFlashlightAvailable && (
                       <Button
                           size="icon"
@@ -442,7 +463,7 @@ export default function ScanPage() {
                  
                  <div className={cn(
                       styles.scanner,
-                      "w-[80%] max-w-[400px] aspect-square rounded-full border-4 border-white/90 shadow-2xl relative",
+                      "w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] rounded-full border-4 border-white/90 shadow-2xl relative",
                       isSuccess && styles.success,
                       { 'box-shadow': '0 0 0 9999px rgba(0,0,0,0.5)' }
                  )}>
@@ -457,9 +478,19 @@ export default function ScanPage() {
 
                 <div className="flex flex-col items-center w-full gap-4 pt-4 pointer-events-auto">
                     {scanState === 'scanning' && (
-                        <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
-                            Align product in the circle
-                        </p>
+                        <>
+                            <Button
+                                size="lg"
+                                className="w-20 h-20 rounded-full shadow-lg bg-primary hover:bg-primary/80"
+                                onClick={handleCaptureLabel}
+                            >
+                                <Camera className="w-8 h-8" />
+                                <span className="sr-only">Capture Label</span>
+                            </Button>
+                            <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
+                                Align product in the circle
+                            </p>
+                        </>
                     )}
                  </div>
               </div>
@@ -504,3 +535,4 @@ export default function ScanPage() {
     </div>
   );
 }
+

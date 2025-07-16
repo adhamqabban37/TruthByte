@@ -87,7 +87,6 @@ export default function ScanPage() {
   const [scanMode, setScanMode] = useState<ScanMode>('label');
   const [scanResult, setScanResult] = useState<AnalyzeProductLabelOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -102,74 +101,74 @@ export default function ScanPage() {
     }
   }, []);
 
-  const stopBarcodeScanner = useCallback(async () => {
-    if (scannerRef.current && scannerRef.current.getState() === Html5QrcodeScannerState.SCANNING) {
-        try {
+  const stopScanner = useCallback(async () => {
+    try {
+        if (scannerRef.current && scannerRef.current.isScanning) {
             await scannerRef.current.stop();
-        } catch (err) {
-            console.error("Error stopping barcode scanner: ", err);
         }
+    } catch (err) {
+        console.error("Failed to stop scanner gracefully:", err);
+    } finally {
+        scannerRef.current = null;
+        stopCameraStream();
     }
-    stopCameraStream();
   }, [stopCameraStream]);
 
   const startLabelScanner = useCallback(async () => {
     setScanState('initializing');
+    await stopScanner();
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         if (videoRef.current) {
             videoRef.current.srcObject = stream;
         }
-        setHasCameraPermission(true);
         setScanState('scanning');
     } catch (err) {
         console.error("Camera permission denied:", err);
-        setHasCameraPermission(false);
         setScanState('permission_denied');
     }
-  }, []);
+  }, [stopScanner]);
 
-  const startBarcodeScanner = useCallback(() => {
-    stopCameraStream();
+  const startBarcodeScanner = useCallback(async () => {
     setScanState('initializing');
-    if (!scannerRef.current) {
+    await stopScanner();
+    try {
+      // Initialize here, right before starting
       scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-    }
-    scannerRef.current.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      async (decodedText) => {
-        setScanState('analyzing');
-        await stopBarcodeScanner();
-        try {
-          const result = await analyzeBarcode({ barcode: decodedText });
-          if (result.method !== 'none' && result.analysis) {
-            setScanResult(result);
-            setShowPopup(true);
-          } else {
-            toast({
-              variant: 'destructive',
-              title: 'Product Not Found',
-              description: "We couldn't find this barcode. Try scanning the label.",
-            });
-            setScanState('scanning');
+      
+      await scannerRef.current.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        async (decodedText) => {
+          setScanState('analyzing');
+          await stopScanner();
+          try {
+            const result = await analyzeBarcode({ barcode: decodedText });
+            if (result.method !== 'none' && result.analysis) {
+              setScanResult(result);
+              setShowPopup(true);
+            } else {
+              toast({
+                variant: 'destructive',
+                title: 'Product Not Found',
+                description: "We couldn't find this barcode. Try scanning the label.",
+              });
+              setScanState('scanning');
+            }
+          } catch (err) {
+              console.error("Barcode analysis failed:", err);
+              toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong.' });
+              setScanState('error');
           }
-        } catch (err) {
-            console.error("Barcode analysis failed:", err);
-            toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong.' });
-            setScanState('error');
-        }
-      },
-      () => {}
-    ).then(() => {
-        setHasCameraPermission(true);
-        setScanState('scanning');
-    }).catch(err => {
-        console.error("Error starting barcode scanner:", err);
-        setHasCameraPermission(false);
-        setScanState('permission_denied');
-    });
-  }, [stopCameraStream, stopBarcodeScanner, toast]);
+        },
+        () => {} // on-going scan callback (empty)
+      );
+      setScanState('scanning');
+    } catch (err) {
+      console.error("Error starting barcode scanner:", err);
+      setScanState('permission_denied');
+    }
+  }, [stopScanner, toast]);
   
   const handleOcrScan = async () => {
     if (!videoRef.current || !canvasRef.current) {
@@ -206,13 +205,13 @@ export default function ScanPage() {
         setScanState('error');
     }
   };
-
+  
+  // Unified cleanup effect
   useEffect(() => {
-    return () => { // Cleanup on unmount
-      if (scanMode === 'label') stopCameraStream();
-      if (scanMode === 'barcode') stopBarcodeScanner();
+    return () => { 
+      stopScanner();
     }
-  }, [scanMode, stopCameraStream, stopBarcodeScanner]);
+  }, [stopScanner]);
 
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
@@ -222,17 +221,14 @@ export default function ScanPage() {
 
   const switchMode = (newMode: ScanMode) => {
     if (newMode === scanMode) {
-      if(scanState === 'scanning') return;
+      if(scanState === 'scanning' || scanState === 'initializing') return;
       if (newMode === 'label') startLabelScanner();
       else startBarcodeScanner();
       return;
     }
 
-    if (scanMode === 'label') stopCameraStream();
-    if (scanMode === 'barcode') stopBarcodeScanner();
-    
     setScanMode(newMode);
-    setScanState('idle');
+    setScanState('idle'); // Go to idle to allow user to start new mode
   };
 
   const renderContent = () => {
@@ -286,7 +282,7 @@ export default function ScanPage() {
         );
       case 'analyzing':
         return (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center pointer-events-none bg-black/50">
                 <div className="flex flex-col items-center justify-center p-6 bg-background/80 rounded-2xl backdrop-blur-sm">
                   <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
                   <h2 className="text-2xl font-bold">Analyzing...</h2>
@@ -368,5 +364,3 @@ export default function ScanPage() {
     </div>
   );
 }
-
-    

@@ -56,7 +56,7 @@ export default function SettingsPage() {
         <CardHeader>
             <CardTitle className="flex items-center gap-2"><Gift className="w-5 h-5 text-primary" /> Remove Ads</CardTitle>
             <CardDescription>Enjoy an ad-free experience and support our mission.</CardDescription>
-        </Header>
+        </CardHeader>
         <CardContent>
             <Button className="w-full">Upgrade to Pro</Button>
         </CardContent>

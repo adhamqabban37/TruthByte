@@ -5,6 +5,9 @@ export default function Home() {
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen p-4 overflow-hidden md:p-6 bg-background">
       <div className="z-10 flex flex-col items-center justify-center w-full max-w-md text-center">
+        <h1 className="mb-8 text-4xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-pink-500 to-yellow-500 animate-rainbow-text [background-size:200%_auto]">
+          Instant ingredient intelligence.
+        </h1>
         <Link href="/scan" passHref>
           <div className="relative flex items-center justify-center w-64 h-64 transition-all duration-300 rounded-full cursor-pointer group">
             {/* Pulsing glow effect */}

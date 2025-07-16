@@ -83,7 +83,6 @@ export default function ScannerClient() {
   const [scanState, setScanState] = useState<ScanState>('starting');
   const [scanResult, setScanResult] = useState<AnalyzeOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
   
   const [isFlashlightOn, setIsFlashlightOn] = useState(false);
   const [isFlashlightAvailable, setIsFlashlightAvailable] = useState(false);
@@ -93,244 +92,188 @@ export default function ScannerClient() {
   const [isClear, setIsClear] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const trackRef = useRef<MediaStreamTrack | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
+  const videoTrackRef = useRef<MediaStreamTrack | null>(null);
 
   const { toast } = useToast();
-
-  const stopScanner = useCallback(async (isSuccessCleanup = false) => {
-     try {
-        if (ocrIntervalRef.current) {
-          clearInterval(ocrIntervalRef.current);
-          ocrIntervalRef.current = null;
-        }
-
-        if (scannerRef.current?.isScanning) {
-            await scannerRef.current.stop();
-        }
-        
-        if (!isSuccessCleanup) {
-            if (trackRef.current) {
-              if (isFlashlightOn && isFlashlightAvailable) {
-                try {
-                    await trackRef.current.applyConstraints({ advanced: [{ torch: false }] });
-                } catch(e) { console.warn("Could not turn off torch", e)}
-              }
-              trackRef.current.stop();
-              trackRef.current = null;
-            }
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
-                streamRef.current = null;
-            }
-            if (videoRef.current) {
-              videoRef.current.srcObject = null;
-            }
-
-            if (scannerRef.current) {
-              scannerRef.current.clear();
-              scannerRef.current = null;
-            }
-            
-            setScanState('idle');
-            setIsFlashlightOn(false);
-            setIsFlashlightAvailable(false);
-            setZoomCapabilities(null);
-            setZoomLevel(1);
-            setShowZoomSlider(false);
-            setIsClear(false);
-        }
-    } catch(e) {
-        console.warn("Error stopping scanner", e);
-    }
-  }, [isFlashlightOn, isFlashlightAvailable]);
 
   const scanStateRef = useRef(scanState);
   useEffect(() => {
     scanStateRef.current = scanState;
   }, [scanState]);
 
-  const handleScanSuccess = useCallback((result: AnalyzeOutput) => {
-    if (result.method === 'none' || scanStateRef.current !== 'scanning') {
-        return;
+  const stopScanner = useCallback(async () => {
+    if (ocrIntervalRef.current) {
+      clearInterval(ocrIntervalRef.current);
+      ocrIntervalRef.current = null;
     }
-    stopScanner(true);
-    setScanState('success');
-    setIsSuccess(true);
     
-    setScanResult(result);
-    setTimeout(() => {
-        setShowPopup(true);
-        setIsSuccess(false);
-    }, 500);
+    if (scannerRef.current && scannerRef.current.isScanning) {
+        try {
+            await scannerRef.current.stop();
+        } catch(e) { console.warn("Could not stop barcode scanner", e) }
+    }
     
+    if (videoTrackRef.current) {
+      if (isFlashlightOn) {
+        try {
+          await videoTrackRef.current.applyConstraints({ advanced: [{ torch: false }] });
+        } catch (e) { console.warn("Could not turn off flashlight", e); }
+      }
+      videoTrackRef.current.stop();
+      videoTrackRef.current = null;
+    }
+
+    const scannerRegion = document.getElementById(SCANNER_REGION_ID);
+    if (scannerRegion) {
+        scannerRegion.innerHTML = "";
+    }
+    
+    setScanState('idle');
+    setIsFlashlightOn(false);
+    setIsFlashlightAvailable(false);
+    setZoomCapabilities(null);
+    setShowZoomSlider(false);
+    setZoomLevel(1);
+    setIsClear(false);
+  }, [isFlashlightOn]);
+  
+  const resetScanner = useCallback(() => {
+    stopScanner();
+    setShowPopup(false);
+    setScanResult(null);
+    setScanState('starting');
   }, [stopScanner]);
 
+  const handleScanSuccess = useCallback((result: AnalyzeOutput) => {
+    if (result.method === 'none' || scanStateRef.current !== 'scanning') {
+      return;
+    }
+    setScanState('success');
+    setScanResult(result);
+    setShowPopup(true);
+  }, []);
+
   const handleCaptureLabel = useCallback(async () => {
-    if (scanStateRef.current !== 'scanning' || !videoRef.current || !canvasRef.current) return;
+    if (scanStateRef.current !== 'scanning') return;
+    
+    const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
+    if (!videoEl) return;
     
     // To avoid multiple OCR requests running at once.
     if(scanStateRef.current === 'analyzing') return;
 
+    const canvas = document.createElement('canvas');
+    canvas.width = videoEl.videoWidth;
+    canvas.height = videoEl.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+    const dataUri = canvas.toDataURL('image/jpeg', 0.85);
 
     try {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      canvas.width = video.videoWidth * 1.5;
-      canvas.height = video.videoHeight * 1.5;
-      
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error("Could not get canvas context");
-
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUri = canvas.toDataURL('image/jpeg', 0.8);
-      
+      setScanState('analyzing');
       const { data: { text } } = await Tesseract.recognize(dataUri, 'eng');
       
       if (!text || text.trim().length < 10) {
-        // Not enough text, go back to scanning mode.
         setIsClear(false);
+        setScanState('scanning');
         return;
       }
       
-      // We have clear text! Show green border.
       setIsClear(true);
-      setScanState('analyzing');
 
       const result = await summarizeText({ labelText: text });
       
       if (result.analysis) {
         handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
       } else {
-        // AI couldn't make sense of it, go back to scanning
         setScanState('scanning');
         setIsClear(false);
       }
     } catch(e) {
         console.error("Label analysis failed:", e);
-        // If OCR fails, just go back to scanning. Don't show an error toast
-        // as this is an automatic background process.
         setScanState('scanning');
         setIsClear(false);
     }
   }, [handleScanSuccess]);
   
-  const startCamera = useCallback(async () => {
-    if (scanStateRef.current !== 'starting' || !videoRef.current) return;
+  const startScanner = useCallback(() => {
+    if (scanStateRef.current !== 'starting') return;
+    setScanState('scanning');
 
-    try {
-        const constraints = {
-            audio: false,
-            video: {
-                facingMode: 'environment',
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-            },
-        };
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        streamRef.current = stream;
+    if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+    }
 
-        // Assign stream to video element
-        videoRef.current.srcObject = stream;
+    const onScanSuccess = async (decodedText: string) => {
+        if (scanStateRef.current === 'scanning') {
+          if(ocrIntervalRef.current) clearTimeout(ocrIntervalRef.current);
+          setIsClear(true);
+          setScanState('analyzing');
+          try {
+            const result = await analyzeBarcode({ barcode: decodedText });
+            handleScanSuccess(result as AnalyzeOutput);
+          } catch(e) {
+              console.error("Barcode analysis failed:", e);
+              setScanState('scanning');
+              setIsClear(false);
+          }
+        }
+      };
 
-        // This prevents the "play() request was interrupted" error
-        videoRef.current.onloadedmetadata = () => {
-            videoRef.current?.play().catch(err => {
-                 console.error("Video play failed:", err)
-                 toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not play video stream.' });
-                 setScanState('error');
-            });
-        };
+    const onScanFailure = (errorMessage: string) => { 
+        if (scanStateRef.current === 'scanning') {
+           setIsClear(false);
+        }
+    };
 
-        const currentTrack = stream.getVideoTracks()[0];
-        trackRef.current = currentTrack;
-        const capabilities = currentTrack.getCapabilities();
+    scannerRef.current.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 250, height: 250 }, disableFlip: true },
+      onScanSuccess,
+      onScanFailure
+    ).then(() => {
+        // Setup track capabilities after start
+        const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
+        if (videoEl && videoEl.srcObject instanceof MediaStream) {
+            const track = videoEl.srcObject.getVideoTracks()[0];
+            videoTrackRef.current = track;
+            const capabilities = track.getCapabilities();
+            if (capabilities.torch) setIsFlashlightAvailable(true);
+            if (capabilities.zoom) setZoomCapabilities(capabilities.zoom);
+        }
 
-        if (capabilities.torch) setIsFlashlightAvailable(true);
-        if (capabilities.zoom) setZoomCapabilities(capabilities.zoom);
-        
-        setScanState('scanning');
-    } catch (err) {
-        console.error("Error starting camera:", err);
+        // Fallback OCR timer
+        if(ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
+        ocrIntervalRef.current = setInterval(handleCaptureLabel, 2000);
+
+    }).catch(err => {
+        console.error("Error starting barcode scanner:", err);
         const errorMessage = (err instanceof Error) ? err.message : 'Unknown camera error.';
         toast({ variant: 'destructive', title: 'Camera Error', description: `Could not start camera: ${errorMessage}. Please grant permissions and try again.` });
-        setScanState('permission_denied');
-    }
-}, [toast]);
-  
-  const startScanner = useCallback(() => {
-      if (!scannerRef.current) {
-          scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-      }
-
-      scannerRef.current.start(
-        { facingMode: 'environment' },
-        { fps: 30, qrbox: { width: 250, height: 250 }, disableFlip: true },
-        async (decodedText) => {
-          if (scanStateRef.current === 'scanning') {
-            setIsClear(true);
-            setScanState('analyzing');
-            try {
-              const result = await analyzeBarcode({ barcode: decodedText });
-              handleScanSuccess(result as AnalyzeOutput);
-            } catch(e) {
-                console.error("Barcode analysis failed:", e);
-                setScanState('scanning');
-                setIsClear(false);
-            }
-          }
-        },
-        (errorMessage) => { 
-            // This is called on every frame that doesn't have a barcode.
-            // We can reset clarity here if OCR hasn't found anything.
-            if (scanStateRef.current === 'scanning') {
-               setIsClear(false);
-            }
+        if (err.name === 'NotAllowedError') {
+             setScanState('permission_denied');
+        } else {
+             setScanState('error');
         }
-      ).catch(err => {
-          console.error("Error starting barcode scanner:", err);
-          if (scanStateRef.current === 'scanning') {
-            setScanState('error');
-          }
-      });
-
-      // Start OCR loop
-      if(ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
-      ocrIntervalRef.current = setInterval(handleCaptureLabel, 2000);
-
-  }, [handleScanSuccess, handleCaptureLabel]);
+    });
+  }, [handleScanSuccess, handleCaptureLabel, toast]);
   
   useEffect(() => {
     if (scanState === 'starting') {
-      startCamera();
-    }
-    if (scanState === 'scanning') {
       startScanner();
     }
-
+    // Cleanup on unmount
     return () => {
-      if (ocrIntervalRef.current) {
-        clearInterval(ocrIntervalRef.current);
-      }
-    }
-  }, [scanState, startCamera, startScanner]);
-
-  const handleClosePopup = useCallback(() => {
-    setShowPopup(false);
-    setScanResult(null);
-    setIsClear(false);
-    setScanState('starting'); // Go back to starting state to re-init camera
-  }, []);
+      stopScanner();
+    };
+  }, [scanState, startScanner, stopScanner]);
 
   const toggleFlashlight = useCallback(() => {
-    if (trackRef.current && isFlashlightAvailable) {
+    if (videoTrackRef.current && isFlashlightAvailable) {
       const nextState = !isFlashlightOn;
-      trackRef.current.applyConstraints({
+      videoTrackRef.current.applyConstraints({
         advanced: [{ torch: nextState }]
       }).then(() => {
         setIsFlashlightOn(nextState);
@@ -339,10 +282,10 @@ export default function ScannerClient() {
   }, [isFlashlightOn, isFlashlightAvailable]);
 
   const handleZoomChange = (value: number) => {
-    if (trackRef.current && zoomCapabilities) {
+    if (videoTrackRef.current && zoomCapabilities) {
         try {
             const newZoom = Math.max(zoomCapabilities.min, Math.min(value, zoomCapabilities.max));
-            trackRef.current.applyConstraints({ advanced: [{ zoom: newZoom }] });
+            videoTrackRef.current.applyConstraints({ advanced: [{ zoom: newZoom }] });
             setZoomLevel(newZoom);
         } catch(e) {
             console.warn("Could not apply zoom", e);
@@ -350,30 +293,25 @@ export default function ScannerClient() {
     }
   }
 
-  useEffect(() => {
-    // This effect runs when the component mounts.
-    // We start in the 'starting' state.
-    setScanState('starting');
-
-    return () => {
-      // Cleanup when the component unmounts.
-      stopScanner();
-    };
-  }, [stopScanner]);
-
-
   const renderContent = () => {
     switch(scanState) {
-      case 'idle': // Should not happen with auto-start
-        return null;
+      case 'idle':
       case 'starting':
-      case 'analyzing':
          return (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center pointer-events-none bg-black/60">
                 <div className="flex flex-col items-center justify-center p-6 bg-background/80 rounded-2xl backdrop-blur-sm">
                   <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
-                  <h2 className="text-2xl font-bold">{scanState === 'starting' ? 'Starting Camera...' : 'Analyzing...'}</h2>
-                  {scanState === 'analyzing' && <p className="mt-2 text-muted-foreground">The AI is inspecting your product.</p>}
+                  <h2 className="text-2xl font-bold">Starting Camera...</h2>
+                </div>
+            </div>
+        )
+      case 'analyzing':
+           return (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center pointer-events-none bg-black/60">
+                <div className="flex flex-col items-center justify-center p-6 bg-background/80 rounded-2xl backdrop-blur-sm">
+                  <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
+                  <h2 className="text-2xl font-bold">Analyzing...</h2>
+                   <p className="mt-2 text-muted-foreground">The AI is inspecting your product.</p>
                 </div>
             </div>
         )
@@ -395,13 +333,15 @@ export default function ScannerClient() {
         );
       case 'error':
         return (
-          <Alert variant="destructive" className="z-10 m-4">
-              <AlertTitle>An Error Occurred</AlertTitle>
-              <AlertDescription>
-                Something went wrong. Please try again.
-                <Button onClick={() => setScanState('starting')} className="mt-4 w-full">Try Again</Button>
-              </AlertDescription>
-          </Alert>
+          <div className="absolute inset-0 z-10 flex items-center justify-center p-4 bg-background">
+              <Alert variant="destructive" className="max-w-md">
+                  <AlertTitle>An Error Occurred</AlertTitle>
+                  <AlertDescription>
+                    Something went wrong. Please try again.
+                    <Button onClick={() => resetScanner()} className="mt-4 w-full">Try Again</Button>
+                  </AlertDescription>
+              </Alert>
+          </div>
         );
       default:
         return null;
@@ -413,13 +353,7 @@ export default function ScannerClient() {
       <div className="relative w-full h-[80vh] max-h-screen overflow-hidden bg-muted flex items-center justify-center">
         {renderContent()}
 
-        {(scanState !== 'idle' && scanState !== 'permission_denied' && scanState !== 'error') && (
-            <>
-              <video ref={videoRef} className={"absolute inset-0 w-full h-full object-cover"} autoPlay playsInline muted />
-              <div id={SCANNER_REGION_ID} className={"w-full h-full"} />
-              <canvas ref={canvasRef} className="hidden"></canvas>
-            </>
-        )}
+        <div id={SCANNER_REGION_ID} className={cn("w-full h-full", (scanState === 'idle' || scanState === 'error' || scanState === 'permission_denied') && "hidden" )} />
         
         {(scanState === 'scanning' || scanState === 'success' || scanState === 'analyzing') && (
              <div className="absolute inset-0 z-10 flex flex-col items-center justify-between p-4 pointer-events-none">
@@ -469,12 +403,12 @@ export default function ScannerClient() {
                  <div className={cn(
                       styles.scanner,
                       "w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] rounded-full border-4 shadow-2xl relative",
-                      isSuccess && styles.success,
+                      scanState === 'success' && styles.success,
                       scanState === 'analyzing' && styles.analyzing,
                       isClear ? 'border-green-500' : 'border-white/90',
                       { 'box-shadow': '0 0 0 9999px rgba(0,0,0,0.5)' }
                  )}>
-                    {!isSuccess && scanState === 'scanning' && (
+                    {scanState === 'scanning' && !isClear &&(
                        <>
                          <div className={cn(styles.scanner_wave, isClear && styles.green_wave)}></div>
                          <div className={cn(styles.scanner_wave, isClear && styles.green_wave)}></div>
@@ -495,10 +429,10 @@ export default function ScannerClient() {
       </div>
       
       <div className="w-full max-w-md p-4">
-        {scanState !== 'idle' && (
-            <Button variant="destructive" className="w-full" onClick={() => stopScanner()}>
+        {(scanState !== 'idle' && scanState !== 'permission_denied' && scanState !== 'error' && scanState !== 'starting') && (
+            <Button variant="destructive" className="w-full" onClick={() => resetScanner()}>
                 <X className="w-5 h-5 mr-2" />
-                Stop Camera
+                Stop Scan
             </Button>
         )}
       </div>
@@ -507,7 +441,7 @@ export default function ScannerClient() {
         open={showPopup}
         onOpenChange={(open) => {
            if (!open) {
-                handleClosePopup();
+                resetScanner();
            }
         }}
       >
@@ -524,7 +458,7 @@ export default function ScannerClient() {
           {scanResult && (
             <SummaryPopupContent
               scanResult={scanResult}
-              onClose={handleClosePopup}
+              onClose={resetScanner}
             />
           )}
         </SheetContent>

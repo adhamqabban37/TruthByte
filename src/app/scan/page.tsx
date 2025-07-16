@@ -1,3 +1,4 @@
+
 'use client';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
@@ -309,3 +310,5 @@ export default function ScanPage() {
     </div>
   );
 }
+
+    

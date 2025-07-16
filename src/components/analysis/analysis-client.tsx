@@ -8,12 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { IngredientChip } from './ingredient-chip';
 import { Button } from '../ui/button';
 import Link from 'next/link';
-import { Share2, Scan, AlertTriangle, Lightbulb } from 'lucide-react';
+import { Share2, Scan } from 'lucide-react';
 import { Separator } from '../ui/separator';
 import { useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '../ui/badge';
-import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
+import { cn } from '@/lib/utils';
 
 interface AnalysisClientProps {
   product: Product;
@@ -70,37 +70,39 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
     }
   };
   
-  const getRecommendationColor = () => {
-    switch (analysis.recommendation.toLowerCase()) {
-      case 'yes':
-        return 'border-green-500 bg-green-500/10';
-      case 'no':
-        return 'border-red-500 bg-red-500/10';
-      case 'caution':
-        return 'border-yellow-500 bg-yellow-500/10';
-      default:
-        return 'border-border';
+  const getGlowEffectClass = () => {
+    const rating = analysis.healthRating.toUpperCase();
+    if (['A', 'B'].includes(rating)) {
+        return 'shadow-[0_0_15px_hsl(var(--healthy)/0.5)] border-healthy/50';
     }
-  }
+    if (['D', 'F'].includes(rating)) {
+        return 'shadow-[0_0_15px_hsl(var(--unhealthy)/0.5)] border-unhealthy/50';
+    }
+    return '';
+  };
+  
+  const cardBaseClasses = "bg-card/80 backdrop-blur-sm border transition-all";
 
   return (
     <div className="space-y-6">
       <header className="flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
-        <Image
-          src={product.imageUrl}
-          alt={product.name}
-          width={128}
-          height={128}
-          className="rounded-lg shadow-md"
-          data-ai-hint={product.dataAiHint}
-        />
+        <div className={cn("relative p-1 rounded-lg", getGlowEffectClass())}>
+            <Image
+              src={product.imageUrl}
+              alt={product.name}
+              width={128}
+              height={128}
+              className="rounded-lg"
+              data-ai-hint={product.dataAiHint}
+            />
+        </div>
         <div>
           <h1 className="text-3xl font-bold font-headline">{product.name}</h1>
           <p className="text-lg text-muted-foreground">{product.brand}</p>
         </div>
       </header>
 
-      <Card>
+      <Card className={cn(cardBaseClasses, getGlowEffectClass())}>
         <CardHeader>
           <CardTitle className="text-2xl font-headline">Truth Summary</CardTitle>
         </CardHeader>
@@ -112,7 +114,7 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={cardBaseClasses}>
         <CardHeader>
           <CardTitle className="text-2xl font-headline">Key Ingredients</CardTitle>
         </CardHeader>
@@ -129,7 +131,7 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
         </CardContent>
       </Card>
 
-      <Card className={cn("transition-colors", getRecommendationColor())}>
+       <Card className={cn(cardBaseClasses)}>
         <CardHeader>
           <CardTitle className="flex items-center gap-3 text-2xl font-headline">
             {getRecommendationIcon()}
@@ -145,27 +147,17 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
             <p>{analysis.explanation}</p>
         </CardContent>
       </Card>
-      
-      <Alert className="bg-amber-100/50 border-amber-300 dark:bg-amber-900/20 dark:border-amber-700/50">
-        <Lightbulb className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-        <AlertTitle className="font-semibold text-amber-800 dark:text-amber-300">Unlock Full Analysis</AlertTitle>
-        <AlertDescription className="text-amber-700 dark:text-amber-400">
-          Watch a short ad to get a deep dive into hidden additives and processing techniques.
-          <Button variant="outline" size="sm" className="mt-2">Watch Ad</Button>
-        </AlertDescription>
-      </Alert>
 
-
-      <Separator />
+      <Separator className="bg-border/20" />
 
       <div className="flex flex-col gap-4 sm:flex-row">
         <Link href="/scan" passHref className="flex-1">
-          <Button size="lg" className="w-full">
+          <Button size="lg" className="w-full text-lg h-12 bg-primary/90 hover:bg-primary text-primary-foreground shadow-[0_0_15px_hsl(var(--primary)/0.4)]">
             <Scan className="w-5 h-5 mr-2" />
             Scan Another
           </Button>
         </Link>
-        <Button size="lg" variant="outline" className="flex-1">
+        <Button size="lg" variant="outline" className="flex-1 w-full h-12 text-lg bg-secondary/80 hover:bg-secondary">
           <Share2 className="w-5 h-5 mr-2" />
           Share
         </Button>

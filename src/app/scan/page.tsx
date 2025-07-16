@@ -90,6 +90,7 @@ export default function ScanPage() {
   const [zoomLevel, setZoomLevel] = useState(1);
   const [zoomCapabilities, setZoomCapabilities] = useState<MediaTrackCapabilities['zoom'] | null>(null);
   const [showZoomSlider, setShowZoomSlider] = useState(false);
+  const [isClear, setIsClear] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -141,6 +142,7 @@ export default function ScanPage() {
             setZoomCapabilities(null);
             setZoomLevel(1);
             setShowZoomSlider(false);
+            setIsClear(false);
         }
     } catch(e) {
         console.warn("Error stopping scanner", e);
@@ -174,7 +176,6 @@ export default function ScanPage() {
     // To avoid multiple OCR requests running at once.
     if(scanStateRef.current === 'analyzing') return;
 
-    setScanState('analyzing');
 
     try {
       const video = videoRef.current;
@@ -193,9 +194,13 @@ export default function ScanPage() {
       
       if (!text || text.trim().length < 10) {
         // Not enough text, go back to scanning mode.
-        setScanState('scanning');
+        setIsClear(false);
         return;
       }
+      
+      // We have clear text! Show green border.
+      setIsClear(true);
+      setScanState('analyzing');
 
       const result = await summarizeText({ labelText: text });
       
@@ -204,12 +209,14 @@ export default function ScanPage() {
       } else {
         // AI couldn't make sense of it, go back to scanning
         setScanState('scanning');
+        setIsClear(false);
       }
     } catch(e) {
         console.error("Label analysis failed:", e);
         // If OCR fails, just go back to scanning. Don't show an error toast
         // as this is an automatic background process.
         setScanState('scanning');
+        setIsClear(false);
     }
   }, [handleScanSuccess]);
   
@@ -266,6 +273,7 @@ export default function ScanPage() {
         { fps: 30, qrbox: { width: 250, height: 250 }, disableFlip: true },
         async (decodedText) => {
           if (scanStateRef.current === 'scanning') {
+            setIsClear(true);
             setScanState('analyzing');
             try {
               const result = await analyzeBarcode({ barcode: decodedText });
@@ -273,10 +281,17 @@ export default function ScanPage() {
             } catch(e) {
                 console.error("Barcode analysis failed:", e);
                 setScanState('scanning');
+                setIsClear(false);
             }
           }
         },
-        (errorMessage) => { /* ignore */ }
+        (errorMessage) => { 
+            // This is called on every frame that doesn't have a barcode.
+            // We can reset clarity here if OCR hasn't found anything.
+            if (scanStateRef.current === 'scanning') {
+               setIsClear(false);
+            }
+        }
       ).catch(err => {
           console.error("Error starting barcode scanner:", err);
           if (scanStateRef.current === 'scanning') {
@@ -308,6 +323,7 @@ export default function ScanPage() {
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
     setScanResult(null);
+    setIsClear(false);
     setScanState('starting'); // Go back to starting state to re-init camera
   }, []);
 
@@ -452,16 +468,17 @@ export default function ScanPage() {
                  
                  <div className={cn(
                       styles.scanner,
-                      "w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] rounded-full border-4 border-white/90 shadow-2xl relative",
+                      "w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] rounded-full border-4 shadow-2xl relative",
                       isSuccess && styles.success,
                       scanState === 'analyzing' && styles.analyzing,
+                      isClear ? 'border-green-500' : 'border-white/90',
                       { 'box-shadow': '0 0 0 9999px rgba(0,0,0,0.5)' }
                  )}>
                     {!isSuccess && scanState === 'scanning' && (
                        <>
-                         <div className={styles.scanner_wave}></div>
-                         <div className={styles.scanner_wave}></div>
-                         <div className={styles.scanner_wave}></div>
+                         <div className={cn(styles.scanner_wave, isClear && styles.green_wave)}></div>
+                         <div className={cn(styles.scanner_wave, isClear && styles.green_wave)}></div>
+                         <div className={cn(styles.scanner_wave, isClear && styles.green_wave)}></div>
                        </>
                     )}
                  </div>

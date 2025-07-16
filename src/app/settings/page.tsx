@@ -57,7 +57,7 @@ export default function SettingsPage() {
         <CardHeader>
             <CardTitle className="flex items-center gap-2"><Gift className="w-5 h-5 text-primary" /> Remove Ads</CardTitle>
             <CardDescription>Enjoy an ad-free experience and support our mission.</CardDescription>
-        </CardHeader>
+        </Header>
         <CardContent>
             <Button className="w-full">Upgrade to Pro</Button>
         </CardContent>
@@ -82,12 +82,6 @@ export default function SettingsPage() {
             </Button>
         </CardContent>
       </Card>
-
-      <Alert className="mt-6 bg-blue-50 border border-blue-200 dark:bg-blue-950 dark:border-blue-800">
-        <AlertDescription className="text-center text-blue-700 dark:text-blue-300">
-          This is a placeholder for a banner ad.
-        </AlertDescription>
-      </Alert>
     </div>
   );
 }

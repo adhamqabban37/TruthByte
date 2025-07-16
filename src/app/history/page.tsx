@@ -8,7 +8,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Calendar, Trash2, ShieldX } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default function HistoryPage() {
   const [history, setHistory] = useState<ScanHistoryItem[]>([]);
@@ -52,12 +51,6 @@ export default function HistoryPage() {
           </Button>
         )}
       </div>
-
-      <Alert className="mt-4 bg-blue-50 border border-blue-200 dark:bg-blue-950 dark:border-blue-800">
-        <AlertDescription className="text-center text-blue-700 dark:text-blue-300">
-          This is a placeholder for a banner ad.
-        </AlertDescription>
-      </Alert>
 
       {history.length === 0 ? (
         <Card className="mt-6 text-center">

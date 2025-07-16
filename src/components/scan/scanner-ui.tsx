@@ -1,18 +1,21 @@
 'use client';
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import styles from './scanner.module.css';
 
-export function ScannerUI() {
-  const router = useRouter();
+interface ScannerUIProps {
+  onScanComplete: (barcode: string) => void;
+}
 
+export function ScannerUI({ onScanComplete }: ScannerUIProps) {
   useEffect(() => {
+    // This simulates a barcode scan after 3 seconds.
+    // In a real app, you would integrate a barcode scanning library here.
     const timer = setTimeout(() => {
-      router.push('/analysis/012345678905');
-    }, 3000); // Simulate 3 second scan time
+      onScanComplete('012345678905'); // Mock barcode
+    }, 3000);
 
     return () => clearTimeout(timer);
-  }, [router]);
+  }, [onScanComplete]);
 
   return (
     <div className={styles.scanner}>

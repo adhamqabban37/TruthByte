@@ -1,16 +1,15 @@
 'use client';
 
-import { Home, History, ScanLine, Settings, Gift } from 'lucide-react';
+import { Home, History, ScanLine, Settings, FileScan } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 
 const navItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/history', label: 'History', icon: History },
   { href: '/scan', label: 'Scan', icon: ScanLine },
-  { href: '/ads', label: 'Ads', icon: Gift },
+  { href: '/analyze/ingredients', label: 'Analyze', icon: FileScan },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 

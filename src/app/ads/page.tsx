@@ -6,7 +6,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Check, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
+import Link from 'next/link';
 
 export default function AdsPage() {
   return (

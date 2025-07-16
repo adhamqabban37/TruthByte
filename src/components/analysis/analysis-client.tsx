@@ -24,6 +24,11 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
   const { toast } = useToast();
 
   useEffect(() => {
+    // Don't save image-based analysis to history
+    if (product.barcode === 'image-analysis') {
+      return;
+    }
+    
     try {
       const history: ScanHistoryItem[] = JSON.parse(
         localStorage.getItem('scanHistory') || '[]'
@@ -58,17 +63,33 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
   }, [product, toast]);
 
   const getRecommendationIcon = () => {
-    switch (analysis.recommendation.toLowerCase()) {
-      case 'yes':
-        return <span className="text-3xl">👍</span>;
-      case 'no':
-        return <span className="text-3xl">👎</span>;
-      case 'caution':
-        return <span className="text-3xl">🤔</span>;
-      default:
-        return null;
+    // The API returns "Yes", "No", or "Caution". Let's get the full object to get explanation.
+    const recommendationText = analysis.recommendation || "";
+    if (recommendationText.toLowerCase().startsWith('yes')) {
+      return <span className="text-3xl">👍</span>;
     }
+    if (recommendationText.toLowerCase().startsWith('no')) {
+       return <span className="text-3xl">👎</span>;
+    }
+    if (recommendationText.toLowerCase().startsWith('caution')) {
+        return <span className="text-3xl">🤔</span>;
+    }
+    return null;
   };
+  
+  const getRecommendationExplanation = () => {
+     const recommendationText = analysis.recommendation || "";
+     const parts = recommendationText.split(/yes|no|caution/i);
+     return parts.length > 1 ? parts[1].trim().replace(/^[:,-\s]+/, '') : recommendationText;
+  }
+
+  const getRecommendationTitle = () => {
+    const recommendationText = analysis.recommendation || "";
+    if (recommendationText.toLowerCase().startsWith('yes')) return 'Yes';
+    if (recommendationText.toLowerCase().startsWith('no')) return 'No';
+    if (recommendationText.toLowerCase().startsWith('caution')) return 'Caution';
+    return 'Recommendation';
+  }
   
   const getGlowEffectClass = () => {
     const rating = analysis.healthRating.toUpperCase();
@@ -94,7 +115,7 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
               height={128}
               className="object-contain w-32 h-32 rounded-lg"
               data-ai-hint={product.dataAiHint}
-              unoptimized // Allow external images from Open Food Facts
+              unoptimized // Allow external images from Open Food Facts & blob URLs
             />
         </div>
         <div>
@@ -144,11 +165,11 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
         </CardHeader>
         <CardContent>
             <Badge variant={
-                analysis.recommendation.toLowerCase() === 'yes' ? 'default' :
-                analysis.recommendation.toLowerCase() === 'no' ? 'destructive' :
+                getRecommendationTitle() === 'Yes' ? 'default' :
+                getRecommendationTitle() === 'No' ? 'destructive' :
                 'secondary'
-            } className="mb-2 text-lg">{analysis.recommendation}</Badge>
-            <p>{analysis.explanation}</p>
+            } className="mb-2 text-lg">{getRecommendationTitle()}</Badge>
+            <p>{getRecommendationExplanation()}</p>
         </CardContent>
       </Card>
 

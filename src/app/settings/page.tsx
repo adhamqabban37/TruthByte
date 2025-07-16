@@ -1,11 +1,22 @@
+'use client';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { ChevronRight, FileText, Gift, HelpCircle, Languages, Shield, Trash2, MessageSquareWarning } from 'lucide-react';
+import Link from 'next/link';
 
 export default function SettingsPage() {
+  
+  const handleClearHistory = () => {
+      if (confirm('Are you sure you want to clear your entire scan history? This action cannot be undone.')) {
+          localStorage.removeItem('scanHistory');
+          alert('Scan history cleared.');
+          window.location.reload();
+      }
+  }
+
   return (
     <div className="container max-w-2xl px-4 py-6 mx-auto sm:px-6 lg:px-8">
       <h1 className="text-3xl font-bold font-headline">Settings</h1>
@@ -29,8 +40,8 @@ export default function SettingsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="en">English</SelectItem>
-                <SelectItem value="es">Español</SelectItem>
-                <SelectItem value="fr">Français</SelectItem>
+                <SelectItem value="es" disabled>Español</SelectItem>
+                <SelectItem value="fr" disabled>Français</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -43,7 +54,7 @@ export default function SettingsPage() {
           <CardDescription>Manage your scan history and data.</CardDescription>
         </CardHeader>
         <CardContent>
-            <Button variant="outline" className="w-full justify-between">
+            <Button variant="outline" className="w-full justify-between" onClick={handleClearHistory}>
                 <div className="flex items-center gap-2">
                     <Trash2 className="w-5 h-5 text-muted-foreground" /> Clear Scan History
                 </div>
@@ -58,7 +69,9 @@ export default function SettingsPage() {
             <CardDescription>Enjoy an ad-free experience and support our mission.</CardDescription>
         </CardHeader>
         <CardContent>
-            <Button className="w-full">Upgrade to Pro</Button>
+            <Link href="/ads">
+                <Button className="w-full">Upgrade to Pro</Button>
+            </Link>
         </CardContent>
       </Card>
 
@@ -67,16 +80,16 @@ export default function SettingsPage() {
           <CardTitle>About</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-            <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground">
+            <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground" disabled>
                 <HelpCircle className="w-5 h-5" /> About TruthByte
             </Button>
-            <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground">
+            <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground" disabled>
                 <MessageSquareWarning className="w-5 h-5" /> Feedback & Report an Issue
             </Button>
-            <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground">
+            <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground" disabled>
                 <Shield className="w-5 h-5" /> Privacy Policy
             </Button>
-             <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground">
+             <Button variant="ghost" className="w-full justify-start gap-2 text-muted-foreground" disabled>
                 <FileText className="w-5 h-5" /> Terms of Service
             </Button>
         </CardContent>

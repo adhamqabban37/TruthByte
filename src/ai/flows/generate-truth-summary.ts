@@ -36,7 +36,7 @@ const GenerateTruthSummaryOutputSchema = z.object({
   ).describe('A breakdown of the top 4 key ingredients.'),
   recommendation: z
     .string()
-    .describe('A recommendation on whether or not to eat the product (Yes/No/Caution) with explanation.'),
+    .describe('A recommendation on whether or not to eat the product (e.g. "Yes: This product is healthy..." or "No: This product contains harmful ingredients..." or "Caution: This product should be consumed in moderation..."). Start with "Yes:", "No:", or "Caution:".'),
   healthRating: z.string().describe('A health rating for the product (A-F).'),
 });
 export type GenerateTruthSummaryOutput = z.infer<typeof GenerateTruthSummaryOutputSchema>;
@@ -52,6 +52,8 @@ const prompt = ai.definePrompt({
   prompt: `You are an AI assistant designed to provide a summary of a food product based on its ingredients.
 
 You will receive a list of ingredients and must return a health score from 1 (bad) to 10 (good), a health rating (A-F), a summary of the ingredients and their potential health impacts, a breakdown of the top 4 key ingredients, and a recommendation on whether or not to eat the product.
+
+For the recommendation, you must start your response with "Yes:", "No:", or "Caution:" followed by a brief explanation.
 
 Ingredients: {{{ingredients}}}
 

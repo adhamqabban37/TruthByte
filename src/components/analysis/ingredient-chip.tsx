@@ -9,6 +9,7 @@ import {
 import { explainIngredient } from '@/ai/flows/explain-ingredient';
 import { Skeleton } from '../ui/skeleton';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
 interface IngredientChipProps {
   ingredient: {
@@ -22,8 +23,11 @@ interface IngredientChipProps {
 export function IngredientChip({ ingredient, productName }: IngredientChipProps) {
   const [explanation, setExplanation] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+
 
   const getCategoryColor = (category: string) => {
+    if (!category) return 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-700';
     switch (category.toLowerCase()) {
       case 'natural':
         return 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/50 dark:text-green-300 dark:border-green-700';
@@ -39,11 +43,23 @@ export function IngredientChip({ ingredient, productName }: IngredientChipProps)
   };
 
   const handleOpenChange = async (open: boolean) => {
-    if (open && !explanation) {
+    if (open && !explanation && !isLoading) {
       setIsLoading(true);
-      const result = await explainIngredient({ ingredientName: ingredient.name, productName });
-      setExplanation(result.explanation);
-      setIsLoading(false);
+      try {
+        const result = await explainIngredient({ ingredientName: ingredient.name, productName });
+        setExplanation(result.explanation);
+      } catch (error) {
+          console.error("Failed to explain ingredient", error);
+          toast({
+              variant: 'destructive',
+              title: 'Error',
+              description: 'Could not fetch explanation for this ingredient.'
+          })
+          // Set a default explanation to avoid re-fetching on next open
+          setExplanation(ingredient.explanation || "Could not load explanation.");
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -71,7 +87,7 @@ export function IngredientChip({ ingredient, productName }: IngredientChipProps)
                 <Skeleton className="h-4 w-3/4" />
               </div>
             ) : (
-              explanation
+              explanation || ingredient.explanation
             )}
           </div>
         </div>

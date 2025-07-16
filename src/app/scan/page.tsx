@@ -81,27 +81,27 @@ export default function ScanPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null); // For OCR capture
+  const canvasRef = useRef<HTMLCanvasElement>(null); 
 
   const { toast } = useToast();
 
   const stopScanner = useCallback(async () => {
-    if (scannerRef.current && scannerRef.current.getState() === Html5QrcodeScannerState.SCANNING) {
-      try {
-        await scannerRef.current.stop();
-      } catch(err) {
-        // Stop may fail if camera is already closed, which is fine.
-        console.log("Scanner stop failed, probably already stopped.", err);
-      }
+    try {
+        if (scannerRef.current && scannerRef.current.getState() === Html5QrcodeScannerState.SCANNING) {
+            await scannerRef.current.stop();
+        }
+    } catch (err) {
+        console.error("Failed to stop scanner gracefully:", err);
+        // It may fail if camera is already off, which is okay.
+    } finally {
+        setScanState('idle');
     }
-    setScanState('idle');
   }, []);
 
   const handleBarcodeScan = useCallback(async (decodedText: string) => {
     setScanState('analyzing');
     await stopScanner();
-    console.log(`Scanned barcode: ${decodedText}`);
-
+    
     try {
       const result = await analyzeBarcode({ barcode: decodedText });
       if (result.method !== 'none' && result.analysis) {
@@ -117,13 +117,13 @@ export default function ScanPage() {
       }
     } catch (err) {
       console.error("Barcode analysis failed:", err);
-      toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong during analysis.' });
+      toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong during barcode analysis.' });
       setScanState('error');
     }
   }, [stopScanner, toast]);
 
   const startBarcodeScanner = useCallback(async () => {
-    if (hasCameraPermission === false || !scannerRef.current) {
+    if (hasCameraPermission !== true || !scannerRef.current) {
       setScanState('permission_denied');
       return;
     }
@@ -135,10 +135,10 @@ export default function ScanPage() {
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         handleBarcodeScan,
-        (errorMessage) => { /* ignore non-scans */ }
+        () => { /* ignore non-scans */ }
       );
     } catch (err) {
-      console.error("Error starting barcode scanner", err);
+      console.error("Error starting barcode scanner:", err);
       setScanState('permission_denied');
       toast({
         variant: 'destructive',
@@ -151,6 +151,7 @@ export default function ScanPage() {
   const handleOcrScan = async () => {
     setScanState('analyzing');
     const video = document.querySelector(`#${SCANNER_REGION_ID} video`) as HTMLVideoElement;
+    
     if (!video || !canvasRef.current) {
         toast({ variant: 'destructive', title: 'Capture Error', description: 'Could not find video element to capture.' });
         setScanState('error');
@@ -175,38 +176,38 @@ export default function ScanPage() {
         toast({
           variant: 'destructive',
           title: 'Analysis Failed',
-          description: 'We couldn\'t read the label. Please try again.',
+          description: 'We couldn\'t read the label clearly. Please try again.',
         });
         setScanState('idle');
       }
     } catch (err) {
         console.error("OCR analysis failed:", err);
-        toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong during analysis.' });
+        toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong during label analysis.' });
         setScanState('error');
     }
   };
   
-  // This effect initializes and cleans up the scanner instance.
   useEffect(() => {
-    const checkPermission = async () => {
+    const checkPermissionAndInit = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         setHasCameraPermission(true);
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach(track => track.stop()); // Stop stream immediately, we just needed to check permission
+        scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
       } catch (error) {
+        console.error("Camera permission denied:", error);
         setHasCameraPermission(false);
         setScanState('permission_denied');
       }
     };
-    checkPermission();
-
-    // Initialize the scanner instance when component mounts
-    scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, {
-        verbose: false,
-    });
+    
+    checkPermissionAndInit();
 
     return () => {
-      stopScanner();
+      // Cleanup on component unmount
+      if (scannerRef.current && scannerRef.current.isScanning) {
+          stopScanner();
+      }
     };
   }, [stopScanner]);
 
@@ -217,6 +218,15 @@ export default function ScanPage() {
   }, []);
 
   const renderContent = () => {
+    if (hasCameraPermission === null) {
+        return (
+            <div className="z-10 flex flex-col items-center justify-center p-4 text-center">
+                <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
+                <h2 className="text-2xl font-bold">Checking Camera...</h2>
+            </div>
+        )
+    }
+
     switch(scanState) {
       case 'permission_denied':
         return (
@@ -231,7 +241,7 @@ export default function ScanPage() {
           <div className="z-10 flex flex-col items-center justify-center p-4 text-center">
             <Loader2 className="w-16 h-16 mb-4 text-destructive"/>
             <h2 className="text-2xl font-bold">An Error Occurred</h2>
-            <p className="mt-2 text-muted-foreground">Something went wrong during analysis.</p>
+            <p className="mt-2 text-muted-foreground">Something went wrong. Please try again.</p>
             <Button onClick={() => setScanState('idle')} className="mt-4">Try Again</Button>
           </div>
         );
@@ -241,11 +251,11 @@ export default function ScanPage() {
             <Camera className="w-16 h-16 mb-4 text-primary"/>
             <h2 className="text-2xl font-bold">Ready to Scan</h2>
             <p className="mt-2 max-w-xs text-center text-muted-foreground">Point your camera at a product barcode to begin.</p>
-            <Button onClick={startBarcodeScanner} size="lg" className="mt-6 h-14" disabled={hasCameraPermission === false}>
+            <Button onClick={startBarcodeScanner} size="lg" className="mt-6 h-14" disabled={!hasCameraPermission}>
               <ScanLine className="w-6 h-6 mr-2" />
               Start Barcode Scan
             </Button>
-            {hasCameraPermission === false && (
+            {!hasCameraPermission && (
               <Alert variant="destructive" className="mt-4 text-left">
                 <AlertTitle>Camera Access Required</AlertTitle>
                 <AlertDescription>
@@ -332,4 +342,5 @@ export default function ScanPage() {
       </Sheet>
     </div>
   );
-}
+
+    

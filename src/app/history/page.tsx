@@ -9,23 +9,23 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Calendar, Trash2, ShieldX } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { useIsMobile } from '@/hooks/use-mobile';
-
 
 export default function HistoryPage() {
   const [history, setHistory] = useState<ScanHistoryItem[]>([]);
-  const isClient = useIsMobile() !== undefined; // A trick to know if we are on client
+  const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-        try {
-          const storedHistory = localStorage.getItem('scanHistory');
-          if (storedHistory) {
-            setHistory(JSON.parse(storedHistory));
-          }
-        } catch (error) {
-          console.error("Could not parse history from localStorage", error);
-        }
+    // This ensures the component is only rendered on the client,
+    // preventing hydration mismatches.
+    setIsClient(true);
+
+    try {
+      const storedHistory = localStorage.getItem('scanHistory');
+      if (storedHistory) {
+        setHistory(JSON.parse(storedHistory));
+      }
+    } catch (error) {
+      console.error("Could not parse history from localStorage", error);
     }
   }, []);
 
@@ -41,7 +41,8 @@ export default function HistoryPage() {
   };
   
   if (!isClient) {
-    return null; // or a loading skeleton
+    // Render nothing or a loading skeleton on the server and initial client render
+    return null;
   }
 
   return (

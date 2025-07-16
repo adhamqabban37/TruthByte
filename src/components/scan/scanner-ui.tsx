@@ -6,14 +6,14 @@ interface ScannerUIProps {
   onCameraPermission: (granted: boolean) => void;
 }
 
-// @ts-ignore - BarcodeDetector is not in all TS libs yet
-const BarcodeDetector = window.BarcodeDetector;
-
 export function ScannerUI({ onScanComplete, onCameraPermission }: ScannerUIProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isScanning, setIsScanning] = useState(true);
 
   const scanFrame = useCallback(async () => {
+    // @ts-ignore - BarcodeDetector is not in all TS libs yet
+    const BarcodeDetector = window.BarcodeDetector;
+
     if (!videoRef.current || videoRef.current.readyState < 2 || !isScanning) {
       return;
     }

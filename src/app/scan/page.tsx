@@ -94,6 +94,7 @@ export default function ScanPage() {
         console.error("Failed to stop scanner gracefully:", err);
         // It may fail if camera is already off, which is okay.
     } finally {
+        scannerRef.current = null;
         setScanState('idle');
     }
   }, []);
@@ -123,15 +124,19 @@ export default function ScanPage() {
   }, [stopScanner, toast]);
 
   const startBarcodeScanner = useCallback(async () => {
-    if (hasCameraPermission !== true || !scannerRef.current) {
+    if (hasCameraPermission !== true) {
       setScanState('permission_denied');
       return;
     }
 
     setScanState('scanning');
     
+    // Initialize scanner here, only when needed
+    const scanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+    scannerRef.current = scanner;
+
     try {
-      await scannerRef.current.start(
+      await scanner.start(
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         handleBarcodeScan,
@@ -193,9 +198,8 @@ export default function ScanPage() {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         setHasCameraPermission(true);
         stream.getTracks().forEach(track => track.stop()); // Stop stream immediately, we just needed to check permission
-        scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
       } catch (error) {
-        console.error("Camera permission denied:", error);
+        console.error("Camera permission denied initial check:", error);
         setHasCameraPermission(false);
         setScanState('permission_denied');
       }
@@ -342,5 +346,4 @@ export default function ScanPage() {
       </Sheet>
     </div>
   );
-
     

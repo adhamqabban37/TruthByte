@@ -1,6 +1,6 @@
 'use client';
 
-import type { GenerateTruthSummaryOutput } from '@/ai/flows/generate-truth-summary';
+import type { AnalyzeProductLabelOutput } from '@/ai/flows/analyze-product-label';
 import type { Product, ScanHistoryItem } from '@/lib/types';
 import Image from 'next/image';
 import { HealthRatingBadge } from './health-rating-badge';
@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
 
 interface AnalysisClientProps {
   product: Product;
-  analysis: GenerateTruthSummaryOutput;
+  analysis: NonNullable<AnalyzeProductLabelOutput['analysis']>;
 }
 
 export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
@@ -25,7 +25,7 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
 
   useEffect(() => {
     // Don't save image-based analysis to history
-    if (product.barcode === 'image-analysis') {
+    if (product.barcode === 'ocr-product') {
       return;
     }
     

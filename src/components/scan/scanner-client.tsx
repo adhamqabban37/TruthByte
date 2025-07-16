@@ -10,7 +10,7 @@ import {
 import { AnalysisSummary } from '@/components/scan/analysis-summary';
 import type { Product } from '@/lib/types';
 import { analyzeBarcode } from '@/ai/flows/analyze-barcode';
-import { Loader2, ScanLine, X, Zap, ZapOff, ZoomIn, ZoomOut } from 'lucide-react';
+import { Loader2, ScanLine, X, Zap, ZapOff, ZoomIn, ZoomOut, Barcode, TextSearch } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -20,11 +20,14 @@ import { Slider } from '@/components/ui/slider';
 import styles from '@/components/scan/scanner.module.css';
 import Tesseract from 'tesseract.js';
 import { summarizeText, type SummarizeTextOutput } from '@/ai/flows/summarize-text';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 
 type AnalyzeOutput = (SummarizeTextOutput & {productImageUrl?: string, method: 'ocr' | 'barcode' | 'none', error?: string});
 
 type ScanState = 'idle' | 'starting' | 'scanning' | 'analyzing' | 'error' | 'permission_denied' | 'success';
+type ScanMode = 'barcode' | 'label';
+
 
 function SummaryPopupContent({
   scanResult,
@@ -80,7 +83,8 @@ function SummaryPopupContent({
 const SCANNER_REGION_ID = 'scanner-region';
 
 export default function ScannerClient() {
-  const [scanState, setScanState] = useState<ScanState>('starting');
+  const [scanState, setScanState] = useState<ScanState>('idle');
+  const [scanMode, setScanMode] = useState<ScanMode>('barcode');
   const [scanResult, setScanResult] = useState<AnalyzeOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
   
@@ -94,6 +98,7 @@ export default function ScannerClient() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
 
   const { toast } = useToast();
 
@@ -136,18 +141,28 @@ export default function ScannerClient() {
     setShowZoomSlider(false);
     setZoomLevel(1);
     setIsClear(false);
+    videoElRef.current = null;
   }, [isFlashlightOn]);
   
   const resetScanner = useCallback(() => {
-    stopScanner();
     setShowPopup(false);
     setScanResult(null);
-    setScanState('starting');
-  }, [stopScanner]);
+    const currentMode = scanMode;
+    stopScanner().then(() => {
+      setScanMode(currentMode);
+      setScanState('starting');
+    });
+  }, [stopScanner, scanMode]);
 
   const handleScanSuccess = useCallback((result: AnalyzeOutput) => {
-    if (result.method === 'none' || scanStateRef.current !== 'scanning') {
-      return;
+    if (scanStateRef.current === 'success' || scanStateRef.current === 'analyzing') {
+       if (result.method === 'none' || !result.analysis) {
+         setScanState('scanning');
+         setIsClear(false);
+         return;
+       }
+    } else {
+        return;
     }
     setScanState('success');
     setScanResult(result);
@@ -157,10 +172,9 @@ export default function ScannerClient() {
   const handleCaptureLabel = useCallback(async () => {
     if (scanStateRef.current !== 'scanning') return;
     
-    const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
+    const videoEl = videoElRef.current;
     if (!videoEl) return;
     
-    // To avoid multiple OCR requests running at once.
     if(scanStateRef.current === 'analyzing') return;
 
     const canvas = document.createElement('canvas');
@@ -172,16 +186,15 @@ export default function ScannerClient() {
     const dataUri = canvas.toDataURL('image/jpeg', 0.85);
 
     try {
-      setScanState('analyzing');
       const { data: { text } } = await Tesseract.recognize(dataUri, 'eng');
       
       if (!text || text.trim().length < 10) {
         setIsClear(false);
-        setScanState('scanning');
         return;
       }
       
       setIsClear(true);
+      setScanState('analyzing');
 
       const result = await summarizeText({ labelText: text });
       
@@ -199,76 +212,101 @@ export default function ScannerClient() {
   }, [handleScanSuccess]);
   
   const startScanner = useCallback(() => {
-    if (scanStateRef.current !== 'starting') return;
+    if (scanStateRef.current === 'scanning' || scanStateRef.current === 'analyzing') return;
     setScanState('scanning');
 
     if (!scannerRef.current) {
         scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
     }
 
-    const onScanSuccess = async (decodedText: string) => {
-        if (scanStateRef.current === 'scanning') {
-          if(ocrIntervalRef.current) clearTimeout(ocrIntervalRef.current);
-          setIsClear(true);
-          setScanState('analyzing');
-          try {
-            const result = await analyzeBarcode({ barcode: decodedText });
-            handleScanSuccess(result as AnalyzeOutput);
-          } catch(e) {
-              console.error("Barcode analysis failed:", e);
-              setScanState('scanning');
-              setIsClear(false);
-          }
-        }
-      };
-
-    const onScanFailure = (errorMessage: string) => { 
-        if (scanStateRef.current === 'scanning') {
-           setIsClear(false);
-        }
+    const config = { facingMode: 'environment' };
+    const qrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
+        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+        const qrboxSize = Math.floor(minEdge * 0.7);
+        return { width: qrboxSize, height: qrboxSize };
     };
 
-    scannerRef.current.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 250 }, disableFlip: true },
-      onScanSuccess,
-      onScanFailure
-    ).then(() => {
-        // Setup track capabilities after start
+    const cameraStartedCallback = () => {
         const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
         if (videoEl && videoEl.srcObject instanceof MediaStream) {
+            videoElRef.current = videoEl;
             const track = videoEl.srcObject.getVideoTracks()[0];
             videoTrackRef.current = track;
             const capabilities = track.getCapabilities();
             if (capabilities.torch) setIsFlashlightAvailable(true);
             if (capabilities.zoom) setZoomCapabilities(capabilities.zoom);
         }
+    }
 
-        // Fallback OCR timer
-        if(ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
-        ocrIntervalRef.current = setInterval(handleCaptureLabel, 2000);
+    if (scanMode === 'barcode') {
+      const onScanSuccess = async (decodedText: string) => {
+          if (scanStateRef.current === 'scanning') {
+            setIsClear(true);
+            setScanState('analyzing');
+            try {
+              const result = await analyzeBarcode({ barcode: decodedText });
+              handleScanSuccess(result as AnalyzeOutput);
+            } catch(e) {
+                console.error("Barcode analysis failed:", e);
+                setScanState('error');
+            }
+          }
+        };
 
-    }).catch(err => {
-        console.error("Error starting barcode scanner:", err);
-        const errorMessage = (err instanceof Error) ? err.message : 'Unknown camera error.';
-        toast({ variant: 'destructive', title: 'Camera Error', description: `Could not start camera: ${errorMessage}. Please grant permissions and try again.` });
-        if (err.name === 'NotAllowedError') {
-             setScanState('permission_denied');
-        } else {
-             setScanState('error');
-        }
-    });
-  }, [handleScanSuccess, handleCaptureLabel, toast]);
+        scannerRef.current.start(
+          config,
+          { fps: 10, qrbox: qrboxFunction, disableFlip: true },
+          onScanSuccess,
+          () => {} // Ignore scan failure
+        ).then(cameraStartedCallback).catch(err => {
+            console.error("Error starting barcode scanner:", err);
+            toast({ variant: 'destructive', title: 'Camera Error', description: `Could not start camera. Please grant permissions and try again.` });
+            setScanState(err.name === 'NotAllowedError' ? 'permission_denied' : 'error');
+        });
+
+    } else if (scanMode === 'label') {
+        scannerRef.current.start(
+          config,
+          { fps: 10, qrbox: qrboxFunction, disableFlip: true },
+          () => {}, // We don't care about barcode success in label mode
+          () => {}
+        ).then(() => {
+            cameraStartedCallback();
+            if(ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
+            ocrIntervalRef.current = setInterval(handleCaptureLabel, 2000);
+        }).catch(err => {
+            console.error("Error starting camera for label mode:", err);
+            toast({ variant: 'destructive', title: 'Camera Error', description: `Could not start camera. Please grant permissions and try again.` });
+            setScanState(err.name === 'NotAllowedError' ? 'permission_denied' : 'error');
+        });
+    }
+  }, [scanMode, handleCaptureLabel, handleScanSuccess, toast]);
   
   useEffect(() => {
     if (scanState === 'starting') {
       startScanner();
     }
+  }, [scanState, startScanner]);
+
+  useEffect(() => {
     // Cleanup on unmount
     return () => {
       stopScanner();
     };
-  }, [scanState, startScanner, stopScanner]);
+  }, [stopScanner]);
+
+  useEffect(() => {
+    // Start scanner automatically on load
+    setScanState('starting');
+  }, []);
+
+  const handleModeChange = (newMode: ScanMode) => {
+    if (newMode === scanMode) return;
+    setScanMode(newMode);
+    stopScanner().then(() => {
+      setScanState('starting');
+    });
+  }
 
   const toggleFlashlight = useCallback(() => {
     if (videoTrackRef.current && isFlashlightAvailable) {
@@ -293,7 +331,7 @@ export default function ScannerClient() {
     }
   }
 
-  const renderContent = () => {
+  const renderScannerStateOverlay = () => {
     switch(scanState) {
       case 'idle':
       case 'starting':
@@ -315,9 +353,6 @@ export default function ScannerClient() {
                 </div>
             </div>
         )
-      case 'scanning':
-      case 'success':
-        return null; 
       case 'permission_denied':
         return (
           <div className="absolute inset-0 z-10 flex items-center justify-center p-4 bg-background">
@@ -351,7 +386,7 @@ export default function ScannerClient() {
   return (
     <div className="flex flex-col items-center justify-center w-full h-full min-h-screen pt-4 bg-background">
       <div className="relative w-full h-[80vh] max-h-screen overflow-hidden bg-muted flex items-center justify-center">
-        {renderContent()}
+        {renderScannerStateOverlay()}
 
         <div id={SCANNER_REGION_ID} className={cn("w-full h-full", (scanState === 'idle' || scanState === 'error' || scanState === 'permission_denied') && "hidden" )} />
         
@@ -402,38 +437,31 @@ export default function ScannerClient() {
                  
                  <div className={cn(
                       styles.scanner,
-                      "w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] rounded-full border-4 shadow-2xl relative",
-                      scanState === 'success' && styles.success,
+                      "w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] rounded-3xl border-4 shadow-2xl relative",
+                      isClear && styles.success,
                       scanState === 'analyzing' && styles.analyzing,
-                      isClear ? 'border-green-500' : 'border-white/90',
-                      { 'box-shadow': '0 0 0 9999px rgba(0,0,0,0.5)' }
+                      !isClear ? 'border-white/80' : 'border-green-500/80',
+                      { 'box-shadow': '0 0 0 9999px rgba(0,0,0,0.6)' }
                  )}>
-                    {scanState === 'scanning' && !isClear &&(
-                       <>
-                         <div className={cn(styles.scanner_wave, isClear && styles.green_wave)}></div>
-                         <div className={cn(styles.scanner_wave, isClear && styles.green_wave)}></div>
-                         <div className={cn(styles.scanner_wave, isClear && styles.green_wave)}></div>
-                       </>
+                    {(scanState === 'scanning' && scanMode === 'barcode') && (
+                        <div className={styles.barcode_line} />
                     )}
                  </div>
 
                 <div className="flex flex-col items-center w-full gap-4 pt-4 pointer-events-auto">
                     {scanState === 'scanning' && (
                         <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
-                            Align product in the circle
+                           {scanMode === 'barcode' ? 'Align barcode in the frame' : 'Align label in the frame'}
                         </p>
                     )}
+                    <Tabs value={scanMode} onValueChange={(v) => handleModeChange(v as ScanMode)} className="w-full max-w-xs">
+                        <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="barcode"><Barcode className="w-5 h-5 mr-2" /> Barcode</TabsTrigger>
+                            <TabsTrigger value="label"><TextSearch className="w-5 h-5 mr-2" /> Label</TabsTrigger>
+                        </TabsList>
+                    </Tabs>
                  </div>
               </div>
-        )}
-      </div>
-      
-      <div className="w-full max-w-md p-4">
-        {(scanState !== 'idle' && scanState !== 'permission_denied' && scanState !== 'error' && scanState !== 'starting') && (
-            <Button variant="destructive" className="w-full" onClick={() => resetScanner()}>
-                <X className="w-5 h-5 mr-2" />
-                Stop Scan
-            </Button>
         )}
       </div>
 

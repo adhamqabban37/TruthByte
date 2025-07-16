@@ -460,4 +460,3 @@ export default function ScanPage() {
   );
 }
 
-    

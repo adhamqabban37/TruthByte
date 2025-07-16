@@ -33,7 +33,13 @@ const analyzeBarcodeFlow = ai.defineFlow(
     inputSchema: AnalyzeBarcodeInputSchema,
     outputSchema: AnalyzeBarcodeOutputSchema,
   },
-  async ({ barcode }) => {
+  async ({ barcode, signal }) => {
+    // Check if the request has been aborted
+    if (signal?.aborted) {
+      console.log("Barcode analysis aborted.");
+      return { method: 'none' };
+    }
+
     try {
       // 1. Get product data from the API
       const productInfo = await getProductFromApi(barcode);

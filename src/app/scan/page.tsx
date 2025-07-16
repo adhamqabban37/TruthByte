@@ -98,46 +98,89 @@ export default function ScanPage() {
   const [zoomCapabilities, setZoomCapabilities] = useState<MediaTrackCapabilities['zoom'] | null>(null);
   const [showZoomSlider, setShowZoomSlider] = useState(false);
 
-
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
 
   const { toast } = useToast();
 
-  const stopScanner = useCallback(async (isSuccessCleanup = false) => {
-    if (scannerRef.current?.isScanning) {
-      try {
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-      } catch (e) {
-        console.warn("Could not stop barcode scanner.", e);
-      }
-      scannerRef.current = null;
-    }
-    
-    if (!isSuccessCleanup) {
-        if (trackRef.current) {
-          if (isFlashlightOn && isFlashlightAvailable) {
-            trackRef.current.applyConstraints({ advanced: [{ torch: false }] });
-          }
-          trackRef.current.stop();
-          trackRef.current = null;
+  const compressImage = useCallback((dataUri: string, maxWidth: number, quality: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.src = dataUri;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = (maxWidth / width) * height;
+          width = maxWidth;
         }
-        if (videoRef.current?.srcObject) {
-          (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
-          videoRef.current.srcObject = null;
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            return reject(new Error("Could not get canvas context"));
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = (error) => {
+        console.error("Image loading error for compression", error);
+        reject(error);
+      };
+    });
+  }, []);
+
+  const stopScanner = useCallback(async (isSuccessCleanup = false) => {
+     try {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
+
+        if (scannerRef.current?.isScanning) {
+            await scannerRef.current.stop();
+            scannerRef.current = null; // Clear the instance
         }
         
-        setScanState('idle');
-        setIsFlashlightOn(false);
-        setIsFlashlightAvailable(false);
-        setZoomCapabilities(null);
-        setZoomLevel(1);
-        setShowZoomSlider(false);
-    }
+        // This is a workaround for a potential bug in html5-qrcode where clear() is needed
+        try {
+            const scanner = new Html5Qrcode(SCANNER_REGION_ID);
+            scanner.clear();
+        } catch (e) {
+            // This may fail if the element is gone, which is fine.
+        }
 
+        if (!isSuccessCleanup) {
+            if (trackRef.current) {
+              if (isFlashlightOn && isFlashlightAvailable) {
+                await trackRef.current.applyConstraints({ advanced: [{ torch: false }] });
+              }
+              trackRef.current.stop();
+              trackRef.current = null;
+            }
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current = null;
+                 if (videoRef.current) {
+                    videoRef.current.srcObject = null;
+                }
+            }
+            
+            setScanState('idle');
+            setIsFlashlightOn(false);
+            setIsFlashlightAvailable(false);
+            setZoomCapabilities(null);
+            setZoomLevel(1);
+            setShowZoomSlider(false);
+        }
+    } catch(e) {
+        console.warn("Error stopping scanner", e);
+    }
   }, [isFlashlightOn, isFlashlightAvailable]);
 
   const handleScanSuccess = useCallback((result: AnalyzeProductLabelOutput) => {
@@ -162,12 +205,13 @@ export default function ScanPage() {
       const constraints = {
         video: {
           facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           focusMode: 'continuous',
         }
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
       const currentTrack = stream.getVideoTracks()[0];
       trackRef.current = currentTrack;
       const capabilities = currentTrack.getCapabilities();
@@ -194,11 +238,14 @@ export default function ScanPage() {
            if (scanState === 'scanning') {
              setScanState('analyzing');
              try {
-               const result = await analyzeBarcode({ barcode: decodedText });
+               abortControllerRef.current = new AbortController();
+               const result = await analyzeBarcode({ barcode: decodedText, signal: abortControllerRef.current.signal });
                handleScanSuccess(result);
              } catch(e) {
-               console.error("Barcode analysis failed:", e);
-               setScanState('scanning');
+                if (e.name !== 'AbortError') {
+                    console.error("Barcode analysis failed:", e);
+                    setScanState('scanning');
+                }
              }
            }
         },
@@ -228,20 +275,23 @@ export default function ScanPage() {
     const context = canvas.getContext('2d');
     if (context) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUri = canvas.toDataURL('image/jpeg');
-
+        
         try {
-            const result = await analyzeProductLabel({ photoDataUri: dataUri });
+            const dataUri = await compressImage(canvas.toDataURL('image/jpeg'), 800, 0.8);
+            abortControllerRef.current = new AbortController();
+            const result = await analyzeProductLabel({ photoDataUri: dataUri, signal: abortControllerRef.current.signal });
             handleScanSuccess(result);
         } catch (e) {
-            console.error("Label analysis failed:", e);
-            toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not analyze the label. Please try again.' });
-            setScanState('scanning'); // Return to scanning state on failure
+            if (e.name !== 'AbortError') {
+              console.error("Label analysis failed:", e);
+              toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not analyze the label. Please try again.' });
+              setScanState('scanning'); // Return to scanning state on failure
+            }
         }
     } else {
         setScanState('scanning');
     }
-  }, [scanState, toast, handleScanSuccess]);
+  }, [scanState, toast, handleScanSuccess, compressImage]);
 
 
   const handleClosePopup = useCallback(() => {
@@ -268,6 +318,13 @@ export default function ScanPage() {
         setZoomLevel(newZoom);
     }
   }
+
+  useEffect(() => {
+    return () => {
+      stopScanner();
+    };
+  }, [stopScanner]);
+
 
   const renderContent = () => {
     switch(scanState) {
@@ -336,8 +393,7 @@ export default function ScanPage() {
         {(scanState !== 'idle' && scanState !== 'permission_denied' && scanState !== 'error') && (
             <>
               <video ref={videoRef} className={"absolute inset-0 w-full h-full object-cover"} autoPlay playsInline muted />
-              {/* This div is used by Html5Qrcode for the barcode scanner viewfinder */}
-              <div id={SCANNER_REGION_ID} className={"w-full h-full"} style={{ display: 'none'}} />
+              <div id={SCANNER_REGION_ID} className={"w-full h-full"} />
               <canvas ref={canvasRef} className="hidden"></canvas>
             </>
         )}
@@ -391,8 +447,8 @@ export default function ScanPage() {
                  
                  <div className={cn(
                       styles.scanner,
-                      "w-[80%] aspect-square rounded-full border-4 border-white/80 shadow-2xl relative",
-                      isSuccess && "border-green-400",
+                      "w-[80%] max-w-[400px] aspect-square rounded-full border-4 border-white/90 shadow-2xl relative",
+                      isSuccess && styles.success,
                       { 'box-shadow': '0 0 0 9999px rgba(0,0,0,0.5)' }
                  )}>
                     {!isSuccess && scanState === 'scanning' && (
@@ -408,9 +464,6 @@ export default function ScanPage() {
                  <div className="flex flex-col items-center w-full gap-4 pt-4 pointer-events-auto">
                      {scanState === 'scanning' && (
                        <>
-                        <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
-                            Align product in the circle
-                        </p>
                         <Button
                             size="lg"
                             className="w-20 h-20 rounded-full shadow-lg"
@@ -419,6 +472,9 @@ export default function ScanPage() {
                             <Camera className="w-8 h-8"/>
                             <span className="sr-only">Capture Label</span>
                         </Button>
+                        <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
+                            Align product in the circle
+                        </p>
                       </>
                     )}
                  </div>

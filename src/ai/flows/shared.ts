@@ -37,6 +37,7 @@ export const AnalyzeProductLabelInputSchema = z.object({
     .describe(
       "A photo of a product label, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
+  signal: z.custom<AbortSignal>().optional(),
 });
 export type AnalyzeProductLabelInput = z.infer<
   typeof AnalyzeProductLabelInputSchema
@@ -48,6 +49,7 @@ export const AnalyzeProductLabelOutputSchema = z.object({
   productBrand: z.string().optional().describe('The brand of the product, if found.'),
   productImageUrl: z.string().optional().describe('A URL for an image of the product, if found.'),
   analysis: GenerateTruthSummaryOutputSchema.optional(),
+  error: z.string().optional(),
 });
 export type AnalyzeProductLabelOutput = z.infer<
   typeof AnalyzeProductLabelOutputSchema
@@ -57,6 +59,7 @@ export const AnalyzeBarcodeOutputSchema = AnalyzeProductLabelOutputSchema;
 export type AnalyzeBarcodeOutput = z.infer<typeof AnalyzeBarcodeOutputSchema>;
 
 export const AnalyzeBarcodeInputSchema = z.object({
-    barcode: z.string().describe("The product barcode value.")
+    barcode: z.string().describe("The product barcode value."),
+    signal: z.custom<AbortSignal>().optional(),
 });
 export type AnalyzeBarcodeInput = z.infer<typeof AnalyzeBarcodeInputSchema>;

@@ -1,3 +1,4 @@
+
 'use client';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
@@ -13,7 +14,7 @@ import {
   AnalyzeProductLabelOutput,
 } from '@/ai/flows/analyze-product-label';
 import { analyzeBarcode } from '@/ai/flows/analyze-barcode';
-import { CameraOff, Loader2, Zap, ZapOff } from 'lucide-react';
+import { Camera, CameraOff, Loader2, ScanBarcode, ScanLine, X, Zap, ZapOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -25,8 +26,10 @@ import {
   CardDescription,
 } from '@/components/ui/card';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { cn } from '@/lib/utils';
 
 type ScanState = 'idle' | 'starting' | 'scanning' | 'analyzing' | 'error' | 'permission_denied';
+type ScanMode = 'label' | 'barcode';
 
 function SummaryPopupContent({
   scanResult,
@@ -82,6 +85,7 @@ const SCANNER_REGION_ID = 'scanner-region';
 
 export default function ScanPage() {
   const [scanState, setScanState] = useState<ScanState>('idle');
+  const [scanMode, setScanMode] = useState<ScanMode>('label');
   const [scanResult, setScanResult] = useState<AnalyzeProductLabelOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
   const [isFlashlightOn, setIsFlashlightOn] = useState(false);
@@ -90,31 +94,27 @@ export default function ScanPage() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); 
-  const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const isProcessingRef = useRef(false);
   const trackRef = useRef<MediaStreamTrack | null>(null);
 
   const { toast } = useToast();
 
-  const stopAllScanners = useCallback(async () => {
-    // Stop OCR interval
-    if (ocrIntervalRef.current) {
-      clearInterval(ocrIntervalRef.current);
-      ocrIntervalRef.current = null;
-    }
-    
+  const stopScanner = useCallback(async () => {
     // Stop barcode scanner
     if (scannerRef.current && scannerRef.current.isScanning) {
       try {
         await scannerRef.current.stop();
       } catch (e) {
-        console.error("Error stopping barcode scanner:", e);
+        console.warn("Could not stop barcode scanner.", e);
       }
     }
-    // scannerRef.current = null; // Do not nullify, it can be reused
-
+    
     // Stop camera stream
     if (trackRef.current) {
+        if (isFlashlightOn) {
+            // Turn off flashlight before stopping track
+            trackRef.current.applyConstraints({ advanced: [{ torch: false }] });
+            setIsFlashlightOn(false);
+        }
         trackRef.current.stop();
         trackRef.current = null;
     }
@@ -122,131 +122,117 @@ export default function ScanPage() {
       (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
-  }, []);
+    setScanState('idle');
+  }, [isFlashlightOn]);
 
   const handleScanSuccess = useCallback((result: AnalyzeProductLabelOutput) => {
-    if (isProcessingRef.current) return; // Already handling a success
-    isProcessingRef.current = true;
-    setScanState('analyzing');
-    // Don't stop scanners here, let the analyzing overlay show over the video
     setScanResult(result);
     setShowPopup(true);
+    setScanState('analyzing');
   }, []);
-
-  const startOcrScan = useCallback(() => {
-    if (ocrIntervalRef.current) return; // Already running
-
-    ocrIntervalRef.current = setInterval(async () => {
-      if (!videoRef.current || !canvasRef.current || isProcessingRef.current || scanState !== 'scanning') return;
-      
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      if (video.readyState < video.HAVE_METADATA) return;
-
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const context = canvas.getContext('2d');
-      context?.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUri = canvas.toDataURL('image/jpeg');
-      
-      try {
-        const result = await analyzeProductLabel({ photoDataUri: dataUri });
-        if (result.method === 'ocr' && result.analysis) {
-          handleScanSuccess(result);
-        }
-      } catch (err) {
-        // This is expected to fail often, so we don't show a toast.
-        console.error("OCR analysis failed:", err);
-      }
-    }, 2000); // Run OCR every 2 seconds
-  }, [scanState, handleScanSuccess]);
   
-  const startBarcodeScanner = useCallback(async () => {
-    // if (scannerRef.current && scannerRef.current.isScanning) return; // Already running
+  const startScanner = useCallback(async () => {
+    setScanState('starting');
+    try {
+       const constraints = {
+          video: { 
+              facingMode: 'environment',
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+          }
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const currentTrack = stream.getVideoTracks()[0];
+      trackRef.current = currentTrack;
+      const capabilities = currentTrack.getCapabilities();
+      if (capabilities.torch) {
+          setIsFlashlightAvailable(true);
+      }
+      
+      // Attach stream to video element for label scanning
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      
+      setScanState('scanning');
+    } catch (err) {
+      console.error("Error starting camera:", err);
+      toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start camera. Please grant permissions and try again.'});
+      setScanState('permission_denied');
+    }
+  }, [toast]);
+  
+  const captureLabel = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+    setScanState('analyzing');
+    
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    
+    if (video.readyState < video.HAVE_METADATA) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    context?.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUri = canvas.toDataURL('image/jpeg');
     
     try {
-      const qrCodeScanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-      scannerRef.current = qrCodeScanner;
-      
-      await qrCodeScanner.start(
-        { facingMode: 'environment' },
-        { fps: 30, qrbox: { width: 300, height: 150 } },
-        async (decodedText) => {
-           if (isProcessingRef.current) return;
-           try {
-             const result = await analyzeBarcode({ barcode: decodedText });
-             if (result.method === 'barcode' && result.analysis) {
-               handleScanSuccess(result);
-             }
-           } catch(e) {
-             console.error("Barcode analysis failed:", e);
-           }
-        },
-        () => {} // Ignore scan region
-      );
+      const result = await analyzeProductLabel({ photoDataUri: dataUri });
+      handleScanSuccess(result);
     } catch (err) {
-      console.error("Error starting barcode scanner:", err);
-      // Don't set state to error, as OCR might still work
+      console.error("OCR analysis failed:", err);
+      toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not analyze the image. Please try again.' });
+      setScanState('scanning');
     }
-  }, [handleScanSuccess]);
-
+  }, [handleScanSuccess, toast]);
+  
 
   useEffect(() => {
-    const startScanning = async () => {
-      if (scanState !== 'scanning') return;
-
-      isProcessingRef.current = false;
-
-      try {
-         const constraints = {
-            video: { 
-                facingMode: 'environment',
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            }
-        };
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+    const initBarcodeScanner = async () => {
+      if(scanMode === 'barcode' && scanState === 'scanning' && !scannerRef.current?.isScanning) {
+        try {
+          const qrCodeScanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+          scannerRef.current = qrCodeScanner;
+          
+          await qrCodeScanner.start(
+            { facingMode: 'environment' },
+            { fps: 30, qrbox: { width: 300, height: 150 } },
+            async (decodedText) => {
+               try {
+                 setScanState('analyzing');
+                 const result = await analyzeBarcode({ barcode: decodedText });
+                 handleScanSuccess(result);
+               } catch(e) {
+                 console.error("Barcode analysis failed:", e);
+                 setScanState('scanning');
+               }
+            },
+            () => {}
+          );
+        } catch (err) {
+          console.error("Error starting barcode scanner:", err);
         }
-        
-        const currentTrack = stream.getVideoTracks()[0];
-        trackRef.current = currentTrack;
-        const capabilities = currentTrack.getCapabilities();
-        if (capabilities.torch) {
-            setIsFlashlightAvailable(true);
-        }
-        
-        // Start both scanners simultaneously
-        startOcrScan();
-        startBarcodeScanner();
-
-      } catch (err) {
-        console.error('Error starting camera:', err);
-        setScanState('permission_denied');
       }
     };
     
-    if (scanState === 'scanning') {
-      startScanning();
-    }
+    initBarcodeScanner();
 
     // Cleanup
     return () => {
-      stopAllScanners();
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        scannerRef.current.stop().catch(e => console.warn("Error stopping barcode scanner on cleanup", e));
+      }
     };
-  }, [scanState, stopAllScanners, startOcrScan, startBarcodeScanner]);
+  }, [scanState, scanMode, handleScanSuccess]);
+
 
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
     setScanResult(null);
-    setScanState('idle'); 
-    stopAllScanners(); // Stop everything when popup closes
-    isProcessingRef.current = false;
-  }, [stopAllScanners]);
+    setScanState('scanning'); 
+  }, []);
 
   const toggleFlashlight = useCallback(() => {
     if (trackRef.current && isFlashlightAvailable) {
@@ -258,7 +244,6 @@ export default function ScanPage() {
         }).catch(e => console.error("Failed to toggle flashlight", e));
     }
   }, [isFlashlightOn, isFlashlightAvailable]);
-
 
   const renderContent = () => {
     switch(scanState) {
@@ -273,7 +258,7 @@ export default function ScanPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button size="lg" onClick={() => setScanState('starting')}>
+                <Button size="lg" onClick={startScanner}>
                    Start Camera
                 </Button>
               </CardContent>
@@ -281,17 +266,17 @@ export default function ScanPage() {
           </div>
         );
       case 'starting':
+      case 'analyzing':
          return (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center pointer-events-none bg-black/50">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center pointer-events-none bg-black/60">
                 <div className="flex flex-col items-center justify-center p-6 bg-background/80 rounded-2xl backdrop-blur-sm">
                   <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
-                  <h2 className="text-2xl font-bold">Starting Camera...</h2>
+                  <h2 className="text-2xl font-bold">{scanState === 'starting' ? 'Starting Camera...' : 'Analyzing...'}</h2>
+                  {scanState === 'analyzing' && <p className="mt-2 text-muted-foreground">The AI is inspecting your product.</p>}
                 </div>
             </div>
         )
       case 'scanning':
-      case 'analyzing':
-        // The video and overlays are always present in these states
         return null; 
       case 'permission_denied':
         return (
@@ -317,62 +302,79 @@ export default function ScanPage() {
         return null;
     }
   };
-  
-  useEffect(() => {
-    if (scanState === 'starting') {
-      setScanState('scanning');
-    }
-  }, [scanState]);
-
 
   return (
-    <div className="flex flex-col items-center justify-start w-full h-full min-h-screen pt-8 bg-background">
+    <div className="flex flex-col items-center justify-center w-full h-full min-h-screen pt-4 bg-background">
       <div className="relative w-full max-w-md mx-auto overflow-hidden aspect-video rounded-2xl bg-muted flex items-center justify-center">
         {renderContent()}
 
         {/* Video and overlays are visible during scanning states */}
-        {(scanState === 'scanning' || scanState === 'analyzing' || scanState === 'starting') && (
+        {(scanState !== 'idle' && scanState !== 'permission_denied' && scanState !== 'error') && (
             <>
-              <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" autoPlay playsInline muted />
-              <div id={SCANNER_REGION_ID} className="absolute inset-0 w-full h-full" />
+              <video ref={videoRef} className={cn("absolute inset-0 w-full h-full object-cover", scanMode === 'barcode' ? 'hidden' : 'block')} autoPlay playsInline muted />
+              <div id={SCANNER_REGION_ID} className={cn("absolute inset-0 w-full h-full", scanMode === 'label' ? 'hidden' : 'block')} />
               <canvas ref={canvasRef} className="hidden"></canvas>
             </>
         )}
         
-        {/* Overlays */}
+        {/* Scanning UI */}
         {(scanState === 'scanning') && (
-             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
-                 <div className="absolute inset-0 bg-black/30" />
-                 <div className="relative w-[85%] aspect-video border-4 border-white/80 rounded-2xl shadow-2xl" style={{
+             <div className="absolute inset-0 z-10 flex flex-col items-center justify-between p-4 pointer-events-none">
+                 {/* Top Controls */}
+                 <div className="flex justify-end w-full pointer-events-auto">
+                    {isFlashlightAvailable && (
+                      <Button
+                          size="icon"
+                          variant={isFlashlightOn ? 'secondary' : 'outline'}
+                          onClick={toggleFlashlight}
+                          className="rounded-full h-12 w-12"
+                      >
+                        {isFlashlightOn ? <ZapOff className="w-6 h-6" /> : <Zap className="w-6 h-6" />}
+                        <span className="sr-only">Toggle Flashlight</span>
+                      </Button>
+                    )}
+                 </div>
+
+                 {/* Center Frame */}
+                 <div className="w-[90%] aspect-video border-4 border-white/80 rounded-2xl shadow-2xl" style={{
                      boxShadow: '0 0 0 9999px rgba(0,0,0,0.5)'
                  }} />
-                 <p className="relative mt-4 font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">Align product label or barcode inside the box</p>
-                 {isFlashlightAvailable && (
-                    <Button
-                        size="icon"
-                        variant={isFlashlightOn ? 'secondary' : 'outline'}
-                        onClick={toggleFlashlight}
-                        className="absolute pointer-events-auto bottom-4 right-4 rounded-full h-12 w-12"
-                    >
-                       {isFlashlightOn ? <ZapOff className="w-6 h-6" /> : <Zap className="w-6 h-6" />}
-                       <span className="sr-only">Toggle Flashlight</span>
-                    </Button>
-                 )}
+
+                 {/* Bottom Controls */}
+                 <div className="flex flex-col items-center w-full gap-4 pointer-events-auto">
+                    <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
+                        {scanMode === 'label' ? "Align product label in the box" : "Align barcode in the box"}
+                    </p>
+                    
+                    {scanMode === 'label' ? (
+                       <Button size="lg" className="w-full max-w-xs h-14" onClick={captureLabel}>
+                         <Camera className="w-6 h-6 mr-2"/>
+                         Capture Label
+                       </Button>
+                    ) : null}
+
+                    <div className="flex items-center justify-center w-full gap-4 p-2 rounded-full bg-black/30">
+                        <Button variant={scanMode === 'label' ? 'secondary' : 'ghost'} onClick={() => setScanMode('label')}>
+                            <ScanLine className="w-5 h-5 mr-2" /> Label
+                        </Button>
+                        <Button variant={scanMode === 'barcode' ? 'secondary' : 'ghost'} onClick={() => setScanMode('barcode')}>
+                             <ScanBarcode className="w-5 h-5 mr-2" /> Barcode
+                        </Button>
+                    </div>
+                 </div>
               </div>
         )}
-        
-        {(scanState === 'analyzing') && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center pointer-events-none bg-black/60">
-                <div className="flex flex-col items-center justify-center p-6 bg-background/80 rounded-2xl backdrop-blur-sm">
-                  <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
-                  <h2 className="text-2xl font-bold">Analyzing...</h2>
-                  <p className="mt-2 text-muted-foreground">The AI is inspecting your product.</p>
-                </div>
-            </div>
-        )}
-
       </div>
       
+      <div className="w-full max-w-md p-4">
+        {scanState !== 'idle' && (
+            <Button variant="destructive" className="w-full" onClick={stopScanner}>
+                <X className="w-5 h-5 mr-2" />
+                Stop Camera
+            </Button>
+        )}
+      </div>
+
       <Sheet
         open={showPopup}
         onOpenChange={(open) => !open && handleClosePopup()}
@@ -398,3 +400,5 @@ export default function ScanPage() {
     </div>
   );
 }
+
+    

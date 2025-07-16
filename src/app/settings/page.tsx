@@ -73,7 +73,12 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent>
             <Link href="/ads">
-                <Button className="w-full">Upgrade to Pro</Button>
+                <Button className="w-full justify-between">
+                    <span className="text-lg font-semibold">Upgrade Now</span>
+                    <span className="px-3 py-1 text-sm font-bold rounded-full bg-primary-foreground/20">
+                      $0.99/mo
+                    </span>
+                </Button>
             </Link>
         </CardContent>
       </Card>

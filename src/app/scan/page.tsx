@@ -92,14 +92,13 @@ export default function ScanPage() {
         }
     } catch (err) {
         console.error("Failed to stop scanner gracefully:", err);
-        // It may fail if camera is already off, which is okay.
     } finally {
         scannerRef.current = null;
         setScanState('idle');
     }
   }, []);
 
-  const handleBarcodeScan = useCallback(async (decodedText: string) => {
+  const handleBarcodeScanSuccess = useCallback(async (decodedText: string) => {
     setScanState('analyzing');
     await stopScanner();
     
@@ -122,38 +121,10 @@ export default function ScanPage() {
       setScanState('error');
     }
   }, [stopScanner, toast]);
-
-  const startBarcodeScanner = useCallback(async () => {
-    if (hasCameraPermission !== true) {
-      setScanState('permission_denied');
-      return;
-    }
-
-    setScanState('scanning');
-    
-    // Initialize scanner here, only when needed
-    const scanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-    scannerRef.current = scanner;
-
-    try {
-      await scanner.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        handleBarcodeScan,
-        () => { /* ignore non-scans */ }
-      );
-    } catch (err) {
-      console.error("Error starting barcode scanner:", err);
-      setScanState('permission_denied');
-      toast({
-        variant: 'destructive',
-        title: 'Camera Error',
-        description: 'Could not start the camera. Please check permissions and try again.',
-      });
-    }
-  }, [hasCameraPermission, handleBarcodeScan, toast]);
-
+  
   const handleOcrScan = async () => {
+    if (scanState !== 'scanning') return;
+
     setScanState('analyzing');
     const video = document.querySelector(`#${SCANNER_REGION_ID} video`) as HTMLVideoElement;
     
@@ -192,28 +163,56 @@ export default function ScanPage() {
     }
   };
   
+  // Effect for checking camera permission on mount
   useEffect(() => {
-    const checkPermissionAndInit = async () => {
+    const checkPermission = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         setHasCameraPermission(true);
-        stream.getTracks().forEach(track => track.stop()); // Stop stream immediately, we just needed to check permission
+        stream.getTracks().forEach(track => track.stop());
       } catch (error) {
         console.error("Camera permission denied initial check:", error);
         setHasCameraPermission(false);
         setScanState('permission_denied');
       }
     };
-    
-    checkPermissionAndInit();
+    checkPermission();
+  }, []);
 
+  // Effect for managing the scanner lifecycle based on scanState
+  useEffect(() => {
+    if (scanState !== 'scanning' || !hasCameraPermission) {
+      return;
+    }
+
+    // Initialize and start scanner when state becomes 'scanning'
+    const scanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+    scannerRef.current = scanner;
+
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      handleBarcodeScanSuccess,
+      () => { /* ignore non-scans */ }
+    ).catch(err => {
+      console.error("Error starting barcode scanner:", err);
+      setScanState('permission_denied');
+      toast({
+        variant: 'destructive',
+        title: 'Camera Error',
+        description: 'Could not start the camera. Please check permissions and try again.',
+      });
+    });
+
+    // Cleanup function to stop the scanner
     return () => {
-      // Cleanup on component unmount
       if (scannerRef.current && scannerRef.current.isScanning) {
-          stopScanner();
+        scannerRef.current.stop().catch(err => {
+            console.error("Failed to stop scanner on cleanup:", err);
+        });
       }
     };
-  }, [stopScanner]);
+  }, [scanState, hasCameraPermission, handleBarcodeScanSuccess, toast]);
 
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
@@ -255,7 +254,7 @@ export default function ScanPage() {
             <Camera className="w-16 h-16 mb-4 text-primary"/>
             <h2 className="text-2xl font-bold">Ready to Scan</h2>
             <p className="mt-2 max-w-xs text-center text-muted-foreground">Point your camera at a product barcode to begin.</p>
-            <Button onClick={startBarcodeScanner} size="lg" className="mt-6 h-14" disabled={!hasCameraPermission}>
+            <Button onClick={() => setScanState('scanning')} size="lg" className="mt-6 h-14" disabled={!hasCameraPermission}>
               <ScanLine className="w-6 h-6 mr-2" />
               Start Barcode Scan
             </Button>
@@ -310,7 +309,7 @@ export default function ScanPage() {
             >
                 Scan Label
             </Button>
-            <Button onClick={stopScanner} size="lg" variant="destructive" className="w-48 h-16 rounded-full text-lg shadow-2xl">
+            <Button onClick={() => setScanState('idle')} size="lg" variant="destructive" className="w-48 h-16 rounded-full text-lg shadow-2xl">
               Cancel
             </Button>
         </div>

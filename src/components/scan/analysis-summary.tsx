@@ -8,6 +8,7 @@ import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface AnalysisSummaryProps {
   product: Product;
@@ -74,6 +75,9 @@ export function AnalysisSummary({
         getGlowEffectClass()
       )}
     >
+      <DialogHeader className="sr-only">
+        <DialogTitle>Product Scan Result: {product.name}</DialogTitle>
+      </DialogHeader>
       <div className="flex justify-center -mt-16">
         <Image
           src={product.imageUrl}

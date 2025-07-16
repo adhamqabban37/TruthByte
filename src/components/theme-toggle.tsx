@@ -18,7 +18,7 @@ export function ThemeToggle() {
     <div className="flex items-center space-x-2">
       <Sun className="h-5 w-5 text-yellow-500" />
       <Switch checked={isDark} onCheckedChange={toggleTheme} aria-label="Toggle theme" />
-      <Moon className="h-5 w-5 text-slate-500" />
+      <Moon className="h-5 w-5" />
     </div>
   );
 }

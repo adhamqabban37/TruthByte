@@ -28,11 +28,11 @@ export function BottomNav() {
               className='flex flex-col items-center justify-center gap-1 text-xs'
             >
               <Icon className={cn(
-                'w-6 h-6',
-                isActive ? 'glowing-icon' : 'glowing-icon-inactive'
+                'w-6 h-6 transition-all drop-shadow-[0_1px_2px_rgba(0,0,0,0.1)]',
+                isActive ? 'text-primary' : 'text-muted-foreground hover:text-primary'
               )} />
               <span className={cn(
-                'transition-colors',
+                'transition-colors font-medium',
                 isActive ? 'text-primary' : 'text-muted-foreground'
               )}>{label}</span>
             </Link>

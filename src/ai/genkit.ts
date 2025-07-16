@@ -1,7 +1,11 @@
 import {genkit} from 'genkit';
-import {googleAI} from '@genkit-ai/googleai';
+import {cohere} from '@genkit-ai/cohere';
 
 export const ai = genkit({
-  plugins: [googleAI()],
-  model: 'googleai/gemini-2.0-flash',
+  plugins: [
+    cohere({
+      apiKey: process.env.COHERE_API_KEY,
+    }),
+  ],
+  model: 'cohere/command-r',
 });

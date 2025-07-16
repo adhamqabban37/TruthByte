@@ -16,9 +16,9 @@ export function ScannerUI() {
 
   return (
     <div className={styles.scanner}>
-      <div className={styles.scanLine}></div>
+      <div className={styles.scanner_wave}></div>
+      <div className={styles.scanner_wave}></div>
+      <div className={styles.scanner_wave}></div>
     </div>
   );
 }
-
-// Create a new css module file for the scanner animation

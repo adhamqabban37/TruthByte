@@ -73,15 +73,15 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
   const getGlowEffectClass = () => {
     const rating = analysis.healthRating.toUpperCase();
     if (['A', 'B'].includes(rating)) {
-        return 'shadow-[0_0_15px_hsl(var(--healthy)/0.5)] border-healthy/50';
+        return 'shadow-[0_0_20px_hsl(var(--healthy)/0.5)] border-healthy/50';
     }
     if (['D', 'F'].includes(rating)) {
-        return 'shadow-[0_0_15px_hsl(var(--unhealthy)/0.5)] border-unhealthy/50';
+        return 'shadow-[0_0_20px_hsl(var(--unhealthy)/0.5)] border-unhealthy/50';
     }
-    return '';
+    return 'shadow-md';
   };
   
-  const cardBaseClasses = "bg-card/80 backdrop-blur-sm border transition-all";
+  const cardBaseClasses = "bg-card/80 backdrop-blur-sm border transition-all rounded-xl";
 
   return (
     <div className="space-y-6">
@@ -107,14 +107,14 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
           <CardTitle className="text-2xl font-headline">Truth Summary</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
             <HealthRatingBadge rating={analysis.healthRating} />
             <p className="text-lg font-semibold">{analysis.summary}</p>
           </div>
         </CardContent>
       </Card>
 
-      <Card className={cardBaseClasses}>
+      <Card className={cn(cardBaseClasses)}>
         <CardHeader>
           <CardTitle className="text-2xl font-headline">Key Ingredients</CardTitle>
         </CardHeader>
@@ -152,12 +152,12 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
 
       <div className="flex flex-col gap-4 sm:flex-row">
         <Link href="/scan" passHref className="flex-1">
-          <Button size="lg" className="w-full text-lg h-12 bg-primary/90 hover:bg-primary text-primary-foreground shadow-[0_0_15px_hsl(var(--primary)/0.4)]">
+          <Button size="lg" className="w-full text-lg h-12 shadow-lg">
             <Scan className="w-5 h-5 mr-2" />
             Scan Another
           </Button>
         </Link>
-        <Button size="lg" variant="outline" className="flex-1 w-full h-12 text-lg bg-secondary/80 hover:bg-secondary">
+        <Button size="lg" variant="outline" className="flex-1 w-full h-12 text-lg">
           <Share2 className="w-5 h-5 mr-2" />
           Share
         </Button>

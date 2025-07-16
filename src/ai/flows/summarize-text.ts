@@ -25,7 +25,7 @@ const prompt = ai.definePrompt({
   prompt: `You are an AI nutrition and ingredient analysis engine. Your job is to provide a fast, reliable summary of any product by analyzing its label text extracted via OCR. Follow these steps precisely:
 
 Step 1: Identify Product
-From the raw text, identify the product name and brand.
+From the raw text, identify the product name and brand. If you cannot find them, use "Scanned Product" for the name and "From Label" for the brand.
 
 Step 2: Ingredient Evaluation
 Flag any of the following as low-quality or red-flag:
@@ -52,7 +52,7 @@ Mention risks (e.g., “High in added sugars”, “Contains palm oil”, “Ult
 Here is the raw OCR text from the product label:
 "{{labelText}}"
 
-Output format: JSON according to the schema.
+Output format: JSON according to the schema. If you cannot determine a field, provide a sensible default.
 `,
 });
 

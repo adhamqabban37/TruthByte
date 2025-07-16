@@ -71,6 +71,7 @@ function SummaryPopupContent({
     name: productName || 'Analyzed Product',
     brand: productBrand || 'From your camera',
     imageUrl: productImageUrl || 'https://placehold.co/400x400.png',
+    dataAiHint: productName,
   };
 
   return (
@@ -162,7 +163,8 @@ export default function ScanPage() {
         video: {
           facingMode: 'environment',
           width: { ideal: 1280 },
-          height: { ideal: 720 }
+          height: { ideal: 720 },
+          focusMode: 'continuous',
         }
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -187,7 +189,7 @@ export default function ScanPage() {
       
       qrCodeScanner.start(
         { facingMode: 'environment' },
-        { fps: 30, qrbox: { width: 300, height: 150 }, showTorchButtonIfSupported: false },
+        { fps: 30, qrbox: { width: 300, height: 150 }, showTorchButtonIfSupported: false, aspectRatio: 1.0 },
         async (decodedText) => {
            if (scanState === 'scanning') {
              setScanState('analyzing');
@@ -328,13 +330,14 @@ export default function ScanPage() {
 
   return (
     <div className="flex flex-col items-center justify-center w-full h-full min-h-screen pt-4 bg-background">
-      <div className="relative w-full max-w-md mx-auto overflow-hidden aspect-video rounded-2xl bg-muted flex items-center justify-center">
+      <div className="relative w-full max-w-md mx-auto overflow-hidden aspect-square rounded-2xl bg-muted flex items-center justify-center">
         {renderContent()}
 
         {(scanState !== 'idle' && scanState !== 'permission_denied' && scanState !== 'error') && (
             <>
               <video ref={videoRef} className={"absolute inset-0 w-full h-full object-cover"} autoPlay playsInline muted />
-              <div id={SCANNER_REGION_ID} className={"w-full h-full"} />
+              {/* This div is used by Html5Qrcode for the barcode scanner viewfinder */}
+              <div id={SCANNER_REGION_ID} className={"w-full h-full"} style={{ display: 'none'}} />
               <canvas ref={canvasRef} className="hidden"></canvas>
             </>
         )}
@@ -344,14 +347,14 @@ export default function ScanPage() {
                  <div className="flex justify-between w-full pointer-events-auto">
                     {/* Zoom controls */}
                     {zoomCapabilities ? (
-                        <div className="flex items-center gap-1 p-1 rounded-full bg-black/30">
-                            <Button size="icon" variant="ghost" className="text-white rounded-full" onClick={() => handleZoomChange(zoomLevel - zoomCapabilities.step)}>
+                        <div className="flex items-center gap-1 p-1 rounded-full bg-black/30 backdrop-blur-sm">
+                            <Button size="icon" variant="ghost" className="text-white rounded-full hover:bg-white/20" onClick={() => handleZoomChange(zoomLevel - zoomCapabilities.step)}>
                                 <ZoomOut className="w-6 h-6" />
                             </Button>
-                             <Button size="icon" variant="ghost" className="text-white rounded-full" onClick={() => setShowZoomSlider(!showZoomSlider)}>
+                             <Button size="icon" variant="ghost" className="text-white rounded-full hover:bg-white/20" onClick={() => setShowZoomSlider(!showZoomSlider)}>
                                 <span className="font-bold">{zoomLevel.toFixed(1)}x</span>
                             </Button>
-                            <Button size="icon" variant="ghost" className="text-white rounded-full" onClick={() => handleZoomChange(zoomLevel + zoomCapabilities.step)}>
+                            <Button size="icon" variant="ghost" className="text-white rounded-full hover:bg-white/20" onClick={() => handleZoomChange(zoomLevel + zoomCapabilities.step)}>
                                 <ZoomIn className="w-6 h-6" />
                             </Button>
                         </div>
@@ -362,7 +365,7 @@ export default function ScanPage() {
                           size="icon"
                           variant={isFlashlightOn ? 'secondary' : 'ghost'}
                           onClick={toggleFlashlight}
-                          className="text-white rounded-full"
+                          className={cn("text-white rounded-full backdrop-blur-sm", !isFlashlightOn && "bg-black/30 hover:bg-white/20")}
                       >
                         {isFlashlightOn ? <ZapOff className="w-6 h-6" /> : <Zap className="w-6 h-6" />}
                         <span className="sr-only">Toggle Flashlight</span>
@@ -371,14 +374,16 @@ export default function ScanPage() {
                  </div>
                  
                  {showZoomSlider && zoomCapabilities && (
-                    <div className="w-full max-w-xs p-4 pointer-events-auto">
-                        <Slider
-                            min={zoomCapabilities.min}
-                            max={zoomCapabilities.max}
-                            step={zoomCapabilities.step}
-                            value={[zoomLevel]}
-                            onValueChange={([val]) => handleZoomChange(val)}
-                        />
+                    <div className="absolute p-4 pointer-events-auto top-16 left-4 right-4">
+                         <div className="p-2 rounded-full bg-black/30 backdrop-blur-sm">
+                            <Slider
+                                min={zoomCapabilities.min}
+                                max={zoomCapabilities.max}
+                                step={zoomCapabilities.step}
+                                value={[zoomLevel]}
+                                onValueChange={([val]) => handleZoomChange(val)}
+                            />
+                        </div>
                     </div>
                  )}
 
@@ -403,6 +408,9 @@ export default function ScanPage() {
                  <div className="flex flex-col items-center w-full gap-4 pt-4 pointer-events-auto">
                      {scanState === 'scanning' && (
                        <>
+                        <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
+                            Align product in the circle
+                        </p>
                         <Button
                             size="lg"
                             className="w-20 h-20 rounded-full shadow-lg"
@@ -411,9 +419,6 @@ export default function ScanPage() {
                             <Camera className="w-8 h-8"/>
                             <span className="sr-only">Capture Label</span>
                         </Button>
-                        <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
-                            Align product in the circle
-                        </p>
                       </>
                     )}
                  </div>
@@ -459,6 +464,5 @@ export default function ScanPage() {
     </div>
   );
 }
-
 
     

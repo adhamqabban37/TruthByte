@@ -15,6 +15,7 @@ import {
 import { Camera, CameraOff, Loader2, Aperture } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 type ScanState = 'idle' | 'scanning' | 'analyzing' | 'error' | 'permission_denied';
 
@@ -71,6 +72,7 @@ export default function ScanPage() {
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [scanResult, setScanResult] = useState<AnalyzeProductLabelOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -86,22 +88,29 @@ export default function ScanPage() {
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    setScanState('idle');
   }, []);
 
   const startCamera = useCallback(async () => {
-    stopCamera(); // Ensure any existing streams are stopped
+    if (hasCameraPermission === false) {
+        setScanState('permission_denied');
+        return;
+    }
+
     setScanState('scanning');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
       });
       streamRef.current = stream;
+      setHasCameraPermission(true);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
       }
     } catch (error) {
       console.error('Error accessing camera:', error);
+      setHasCameraPermission(false);
       setScanState('permission_denied');
       toast({
         variant: 'destructive',
@@ -109,7 +118,34 @@ export default function ScanPage() {
         description: 'Please enable camera permissions in your browser settings to use this app.',
       });
     }
-  }, [stopCamera, toast]);
+  }, [hasCameraPermission, toast]);
+
+  useEffect(() => {
+    // Check for camera permission on mount
+    const getCameraPermission = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        setHasCameraPermission(true);
+        // We got permission, but we must stop the track immediately
+        // as we only want to start the camera when the user clicks the button.
+        stream.getTracks().forEach(track => track.stop());
+      } catch (error) {
+        console.error('Error checking camera permission:', error);
+        setHasCameraPermission(false);
+      }
+    };
+    if (hasCameraPermission === null) {
+        getCameraPermission();
+    }
+
+    // Cleanup camera on component unmount
+    return () => {
+      if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [hasCameraPermission]);
+
 
   const handleCapture = async () => {
     if (
@@ -156,14 +192,6 @@ export default function ScanPage() {
     }
   };
   
-  // Cleanup on component unmount
-  useEffect(() => {
-      return () => {
-          stopCamera();
-      }
-  }, [stopCamera]);
-
-
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
     setScanResult(null);
@@ -196,9 +224,17 @@ export default function ScanPage() {
                         <Camera className="w-16 h-16 mb-4 text-primary"/>
                         <h2 className="text-2xl font-bold">Ready to Scan</h2>
                         <p className="mt-2 max-w-xs text-center text-muted-foreground">Point your camera at a product label to begin.</p>
-                        <Button onClick={startCamera} size="lg" className="mt-6 h-14">
+                        <Button onClick={startCamera} size="lg" className="mt-6 h-14" disabled={hasCameraPermission === false}>
                             Start Camera
                         </Button>
+                         {hasCameraPermission === false && (
+                            <Alert variant="destructive" className="mt-4 text-left">
+                                <AlertTitle>Camera Access Required</AlertTitle>
+                                <AlertDescription>
+                                    Please allow camera access in your browser settings to use this feature.
+                                </AlertDescription>
+                            </Alert>
+                        )}
                     </div>
                 </div>
             );
@@ -233,7 +269,7 @@ export default function ScanPage() {
       
       {scanState === 'scanning' && (
         <div className="absolute bottom-10 z-20 flex flex-col items-center gap-4">
-            <p className="text-lg text-center text-foreground">Position the label within the frame and capture</p>
+            <p className="px-4 text-lg text-center text-foreground">Position the label within the frame and capture</p>
             <Button onClick={handleCapture} size="lg" className="w-48 h-16 rounded-full text-lg shadow-2xl">
                 <Aperture className="w-6 h-6 mr-2" />
                 Capture

@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, Suspense } from 'react';
 import { ScannerUI } from '@/components/scan/scanner-ui';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { AnalysisSummary } from '@/components/scan/analysis-summary';
 import { getProductFromApi } from '@/lib/data-service';
 import type { Product } from '@/lib/types';
@@ -42,11 +42,19 @@ function SummaryPopupContent({
 
   if (!product || !analysis) {
     return (
-      <div className="p-6 space-y-4">
-        <Skeleton className="w-full h-32 rounded-lg" />
-        <Skeleton className="w-3/4 h-8" />
-        <Skeleton className="w-full h-20" />
-        <Skeleton className="w-full h-12" />
+      <div className="p-6 space-y-4 bg-background h-screen">
+        <div className="flex justify-center pt-8">
+            <Skeleton className="w-40 h-40 rounded-lg" />
+        </div>
+        <div className="pt-4 space-y-2">
+            <Skeleton className="w-3/4 h-8 mx-auto" />
+            <Skeleton className="w-1/2 h-6 mx-auto" />
+        </div>
+        <div className="space-y-3 pt-6">
+            <Skeleton className="w-full h-20" />
+            <Skeleton className="w-full h-12" />
+            <Skeleton className="w-full h-24" />
+        </div>
       </div>
     );
   }
@@ -78,15 +86,15 @@ export default function ScanPage() {
         <p className="mb-4 text-lg">Place a barcode inside the frame</p>
       </div>
 
-      <Dialog open={!!scannedBarcode} onOpenChange={(open) => !open && handleClosePopup()}>
-        <DialogContent className="p-0 bg-transparent border-none shadow-none">
+      <Sheet open={!!scannedBarcode} onOpenChange={(open) => !open && handleClosePopup()}>
+        <SheetContent side="bottom" className="h-screen p-0 bg-black/80 backdrop-blur-sm border-none">
           {scannedBarcode && (
-            <Suspense fallback={<Skeleton className="w-full h-96" />}>
+            <Suspense fallback={<Skeleton className="w-full h-screen" />}>
                <SummaryPopupContent barcode={scannedBarcode} onClose={handleClosePopup} />
             </Suspense>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

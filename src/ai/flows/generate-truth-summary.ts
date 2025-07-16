@@ -19,9 +19,11 @@ const GenerateTruthSummaryInputSchema = z.object({
 export type GenerateTruthSummaryInput = z.infer<typeof GenerateTruthSummaryInputSchema>;
 
 const GenerateTruthSummaryOutputSchema = z.object({
-  healthRating: z
-    .string()
-    .describe('A health rating for the product (A-F).'),
+  healthScore: z
+    .number()
+    .min(1)
+    .max(10)
+    .describe('A health score for the product from 1 (bad) to 10 (good).'),
   summary: z
     .string()
     .describe('An AI-generated summary of the ingredients and their potential health impacts.'),
@@ -31,10 +33,11 @@ const GenerateTruthSummaryOutputSchema = z.object({
       category: z.string().describe('The category of the ingredient (e.g., Natural, Preservative, Artificial, Organic).'),
       explanation: z.string().describe('An AI explanation of the ingredient.'),
     })
-  ).describe('A breakdown of the key ingredients.'),
+  ).describe('A breakdown of the top 4 key ingredients.'),
   recommendation: z
     .string()
     .describe('A recommendation on whether or not to eat the product (Yes/No/Caution) with explanation.'),
+  healthRating: z.string().describe('A health rating for the product (A-F).'),
 });
 export type GenerateTruthSummaryOutput = z.infer<typeof GenerateTruthSummaryOutputSchema>;
 
@@ -48,7 +51,7 @@ const prompt = ai.definePrompt({
   output: {schema: GenerateTruthSummaryOutputSchema},
   prompt: `You are an AI assistant designed to provide a summary of a food product based on its ingredients.
 
-You will receive a list of ingredients and must return a health rating (A-F), a summary of the ingredients and their potential health impacts, a breakdown of the key ingredients, and a recommendation on whether or not to eat the product.
+You will receive a list of ingredients and must return a health score from 1 (bad) to 10 (good), a health rating (A-F), a summary of the ingredients and their potential health impacts, a breakdown of the top 4 key ingredients, and a recommendation on whether or not to eat the product.
 
 Ingredients: {{{ingredients}}}
 

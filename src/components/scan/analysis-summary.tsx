@@ -8,7 +8,11 @@ import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import {
+  Card,
+  CardContent,
+} from '@/components/ui/card';
 
 interface AnalysisSummaryProps {
   product: Product;
@@ -57,47 +61,74 @@ export function AnalysisSummary({
     }
   }, [product, toast]);
 
-  const getGlowEffectClass = () => {
-    const rating = analysis.healthRating.toUpperCase();
-    if (['A', 'B'].includes(rating)) {
-      return 'shadow-[0_0_30px_10px_hsl(var(--healthy)/0.5)] border-healthy/80';
-    }
-    if (['D', 'E', 'F'].includes(rating)) {
-      return 'shadow-[0_0_30px_10px_hsl(var(--unhealthy)/0.5)] border-unhealthy/80';
-    }
-    return 'shadow-lg border-muted/50';
+  const getScoreColor = (score: number) => {
+    if (score >= 8) return 'text-healthy';
+    if (score <= 4) return 'text-unhealthy';
+    return 'text-yellow-500';
   };
 
   return (
-    <div
-      className={cn(
-        'p-4 space-y-4 text-center bg-card rounded-2xl border-2',
-        getGlowEffectClass()
-      )}
-    >
-      <DialogHeader className="sr-only">
-        <DialogTitle>Product Scan Result: {product.name}</DialogTitle>
-      </DialogHeader>
-      <div className="flex justify-center -mt-16">
-        <Image
-          src={product.imageUrl}
-          alt={product.name}
-          width={128}
-          height={128}
-          className="object-contain w-32 h-32 rounded-lg bg-background"
-          data-ai-hint={product.dataAiHint}
-          unoptimized
-        />
-      </div>
-      <div className="space-y-2">
-        <h2 className="text-2xl font-bold font-headline">{product.name}</h2>
-        <p className="px-4 text-base text-muted-foreground">{analysis.summary}</p>
-      </div>
-      <Link href={`/analysis/${product.barcode}`} passHref>
-        <Button size="lg" className="w-full text-lg" onClick={onClose}>
-          View Full Analysis <ChevronRight className="w-5 h-5 ml-2" />
-        </Button>
-      </Link>
+    <div className="flex flex-col h-full p-4 text-white bg-transparent">
+        <div className="flex-shrink-0 pt-8 text-center">
+            <div className="inline-block p-1 bg-white rounded-lg shadow-lg">
+                <Image
+                  src={product.imageUrl}
+                  alt={product.name}
+                  width={160}
+                  height={160}
+                  className="object-contain w-40 h-40 rounded-md"
+                  data-ai-hint={product.dataAiHint}
+                  unoptimized
+                />
+            </div>
+            <h2 className="mt-4 text-3xl font-bold">{product.name}</h2>
+        </div>
+
+        <div className="flex-grow mt-6 space-y-4 overflow-y-auto">
+             <Card className="bg-white/10 border-white/20">
+                <CardContent className="p-4">
+                    <div className="flex items-center justify-center gap-4 text-center">
+                        <div>
+                            <p className="text-sm text-white/70">Health Score</p>
+                            <p className={cn("text-6xl font-bold", getScoreColor(analysis.healthScore))}>
+                                {analysis.healthScore}
+                            </p>
+                            <p className="text-sm text-white/70">out of 10</p>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Card className="bg-white/10 border-white/20">
+                <CardContent className="p-4">
+                     <h3 className="mb-2 font-semibold text-center">Key Ingredients</h3>
+                    <div className="flex flex-wrap justify-center gap-2">
+                        {analysis.keyIngredients.slice(0, 4).map((ing, i) => (
+                            <Badge key={i} variant="secondary" className="text-sm rounded-full">
+                                {ing.name}
+                            </Badge>
+                        ))}
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Card className="bg-white/10 border-white/20">
+                 <CardContent className="p-4">
+                    <h3 className="mb-2 font-semibold text-center">AI Summary</h3>
+                    <p className="text-sm text-center text-white/90">
+                        {analysis.summary}
+                    </p>
+                </CardContent>
+            </Card>
+        </div>
+
+        <div className="flex-shrink-0 pt-4">
+             <Link href={`/analysis/${product.barcode}`} passHref>
+                <Button size="lg" className="w-full text-lg bg-primary h-14" onClick={onClose}>
+                View Full Analysis <ChevronRight className="w-5 h-5 ml-2" />
+                </Button>
+            </Link>
+        </div>
     </div>
   );
 }

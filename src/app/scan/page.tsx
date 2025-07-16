@@ -285,23 +285,25 @@ export default function ScanPage() {
       </div>
       
       {scanState === 'scanning' && (
-        <div className="absolute bottom-10 z-20 flex flex-col items-center gap-4">
-          <Button onClick={stopScanner} size="lg" variant="destructive" className="w-48 h-16 rounded-full text-lg shadow-2xl">
-            Cancel
-          </Button>
+        <div className="absolute z-20 flex flex-col items-center gap-4 text-center bottom-10">
+           <p className="px-4 text-sm text-muted-foreground">Or, if the product has no barcode:</p>
+            <Button
+              onClick={handleOcrScan}
+              variant="outline"
+              size="lg"
+              className="w-48 h-16 rounded-full text-lg shadow-2xl"
+            >
+                Scan Label
+            </Button>
+            <Button onClick={stopScanner} size="lg" variant="destructive" className="w-48 h-16 rounded-full text-lg shadow-2xl">
+              Cancel
+            </Button>
         </div>
       )}
 
       {scanState === 'idle' && (
         <div className="absolute z-20 flex flex-col items-center gap-4 text-center text-foreground bottom-10 px-4">
-            <p className="text-sm text-muted-foreground">Or, if the product has no barcode:</p>
-             <Button
-                onClick={() => toast({ title: "Feature coming soon!", description: "OCR scanning will be enabled in a future update."})}
-                variant="outline"
-                disabled // Re-enable when OCR flow is ready
-             >
-                Scan Label with OCR
-            </Button>
+            <p className="text-sm text-muted-foreground">If the product has no barcode, start the scan then tap "Scan Label"</p>
         </div>
       )}
 

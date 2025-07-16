@@ -9,7 +9,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z} from 'zod';
 
 const GenerateTruthSummaryInputSchema = z.object({
   ingredients: z
@@ -18,7 +18,7 @@ const GenerateTruthSummaryInputSchema = z.object({
 });
 export type GenerateTruthSummaryInput = z.infer<typeof GenerateTruthSummaryInputSchema>;
 
-const GenerateTruthSummaryOutputSchema = z.object({
+export const GenerateTruthSummaryOutputSchema = z.object({
   healthScore: z
     .number()
     .min(1)

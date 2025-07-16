@@ -110,15 +110,19 @@ export default function ScannerClient() {
             title: 'Analysis Failed',
             description: result.error || 'Could not analyze the product. Please try again.',
         });
-        setScanState('scanning'); 
-        setIsClear(false);
+        // Reset to allow another scan
+        const currentMode = scanMode;
+        stopScanner().then(() => {
+          setScanMode(currentMode);
+          setScanState('starting');
+        });
         return;
     }
     
     setScanResult(result);
     setScanState('success');
     setShowPopup(true);
-  }, [toast]);
+  }, [toast, scanMode]);
 
   const stopScanner = useCallback(async () => {
     if (ocrIntervalRef.current) {
@@ -223,7 +227,7 @@ export default function ScannerClient() {
 
     const cameraStartedCallback = () => {
         const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
-        if (videoEl && videoEl.srcObject instanceof MediaStream) {
+        if (videoEl && videoEl instanceof HTMLVideoElement && videoEl.srcObject instanceof MediaStream) {
             if (videoEl.paused) {
                 videoEl.play().catch(err => {
                     if (err.name !== 'AbortError') {

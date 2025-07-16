@@ -1,31 +1,29 @@
 'use client';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, RefObject } from 'react';
 
 interface ScannerUIProps {
   onScanComplete: (barcode: string) => void;
-  onCameraPermission: (granted: boolean) => void;
+  videoRef: RefObject<HTMLVideoElement>;
 }
 
-export function ScannerUI({ onScanComplete, onCameraPermission }: ScannerUIProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+export function ScannerUI({ onScanComplete, videoRef }: ScannerUIProps) {
   const [isScanning, setIsScanning] = useState(true);
 
   const scanFrame = useCallback(async () => {
+    // This is a browser API, so we need to check for it.
     // @ts-ignore - BarcodeDetector is not in all TS libs yet
-    const BarcodeDetector = window.BarcodeDetector;
+    if (!('BarcodeDetector' in window)) {
+      console.error('Barcode Detector is not supported in this browser.');
+      return;
+    }
 
     if (!videoRef.current || videoRef.current.readyState < 2 || !isScanning) {
       return;
     }
     
-    if (!BarcodeDetector) {
-      console.error('Barcode Detector is not supported in this browser.');
-      // Maybe show a toast to the user.
-      return;
-    }
-
     try {
-      const barcodeDetector = new BarcodeDetector({
+      // @ts-ignore
+      const barcodeDetector = new window.BarcodeDetector({
         formats: ['ean_13', 'upc_a', 'upc_e', 'ean_8', 'qr_code'],
       });
       
@@ -41,39 +39,17 @@ export function ScannerUI({ onScanComplete, onCameraPermission }: ScannerUIProps
     } catch (error) {
       console.error('Barcode detection failed:', error);
     }
-  }, [isScanning, onScanComplete]);
+  }, [isScanning, onScanComplete, videoRef]);
 
   useEffect(() => {
-    const getCameraPermission = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-        onCameraPermission(true);
-      } catch (error) {
-        console.error('Error accessing camera:', error);
-        onCameraPermission(false);
-      }
-    };
-
-    getCameraPermission();
-
     const intervalId = setInterval(() => {
       scanFrame();
     }, 500); // Scan every 500ms
 
     return () => {
       clearInterval(intervalId);
-      if (videoRef.current && videoRef.current.srcObject) {
-        (videoRef.current.srcObject as MediaStream)
-          .getTracks()
-          .forEach((track) => track.stop());
-      }
     };
-  }, [onCameraPermission, scanFrame]);
+  }, [scanFrame]);
 
   // Restart scanning when the popup is closed
   useEffect(() => {

@@ -112,7 +112,37 @@ function SummaryPopupContent({
 export default function ScanPage() {
   const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const getCameraPermission = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        setHasCameraPermission(true);
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (error) {
+        console.error('Error accessing camera:', error);
+        setHasCameraPermission(false);
+        toast({
+          variant: 'destructive',
+          title: 'Camera Access Denied',
+          description: 'Please enable camera permissions in your browser settings to use this app.',
+        });
+      }
+    };
+
+    getCameraPermission();
+    
+    return () => {
+      if (videoRef.current && videoRef.current.srcObject) {
+        (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+      }
+    }
+  }, [toast]);
 
   const handleScanComplete = (barcode: string) => {
     setScannedBarcode(barcode);
@@ -121,22 +151,11 @@ export default function ScanPage() {
   const handleClosePopup = () => {
     setScannedBarcode(null);
   };
-  
-  const handleCameraPermission = (granted: boolean) => {
-    setHasCameraPermission(granted);
-    if (!granted) {
-      toast({
-        variant: 'destructive',
-        title: 'Camera Access Denied',
-        description: 'Please enable camera permissions to scan barcodes.',
-      });
-    }
-  };
 
   return (
     <div className="relative flex flex-col items-center justify-center w-full h-full min-h-screen p-4 bg-background">
       <div className="relative w-full max-w-md mx-auto overflow-hidden aspect-square rounded-2xl">
-        <ScannerUI onScanComplete={handleScanComplete} onCameraPermission={handleCameraPermission} />
+        <ScannerUI onScanComplete={handleScanComplete} videoRef={videoRef} />
         {hasCameraPermission === false && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center bg-black/70 text-white">
                 <CameraOff className="w-16 h-16 mb-4 text-destructive"/>

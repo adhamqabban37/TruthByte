@@ -28,6 +28,10 @@ export function AnalysisSummary({
   const { toast } = useToast();
 
   useEffect(() => {
+    // Only save items with a valid barcode to history
+    if (product.barcode === 'ocr-product') {
+        return;
+    }
     try {
       const history: ScanHistoryItem[] = JSON.parse(
         localStorage.getItem('scanHistory') || '[]'
@@ -101,20 +105,7 @@ export function AnalysisSummary({
                     </div>
                 </CardContent>
             </Card>
-
-            <Card className="bg-white/10 border-white/20">
-                <CardContent className="p-4">
-                     <h3 className="mb-2 font-semibold text-center">Key Ingredients</h3>
-                    <div className="flex flex-wrap justify-center gap-2">
-                        {analysis.keyIngredients.slice(0, 4).map((ing, i) => (
-                            <Badge key={i} variant="secondary" className="text-sm rounded-full">
-                                {ing.name}
-                            </Badge>
-                        ))}
-                    </div>
-                </CardContent>
-            </Card>
-
+            
             <Card className="bg-white/10 border-white/20">
                  <CardContent className="p-4">
                     <h3 className="mb-2 font-semibold text-center">AI Summary</h3>
@@ -123,14 +114,33 @@ export function AnalysisSummary({
                     </p>
                 </CardContent>
             </Card>
+
+            {analysis.keyIngredients && analysis.keyIngredients.length > 0 && (
+                <Card className="bg-white/10 border-white/20">
+                    <CardContent className="p-4">
+                        <h3 className="mb-2 font-semibold text-center">Key Ingredients</h3>
+                        <div className="flex flex-wrap justify-center gap-2">
+                            {analysis.keyIngredients.slice(0, 4).map((ing, i) => (
+                                <Badge key={i} variant="secondary" className="text-sm rounded-full">
+                                    {ing.name}
+                                </Badge>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
         </div>
 
         <div className="flex-shrink-0 pt-4">
-             <Link href={`/analysis/${product.barcode}`} passHref>
-                <Button size="lg" className="w-full text-lg bg-primary h-14" onClick={onClose}>
-                View Full Analysis <ChevronRight className="w-5 h-5 ml-2" />
-                </Button>
-            </Link>
+             {/* Only show button if it was a barcode scan with more details */}
+             {product.barcode !== 'ocr-product' && (
+                <Link href={`/analysis/${product.barcode}`} passHref>
+                    <Button size="lg" className="w-full text-lg bg-primary h-14" onClick={onClose}>
+                    View Full Analysis <ChevronRight className="w-5 h-5 ml-2" />
+                    </Button>
+                </Link>
+             )}
         </div>
     </div>
   );

@@ -1,4 +1,3 @@
-
 'use client';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
@@ -14,7 +13,7 @@ import {
   AnalyzeProductLabelOutput,
 } from '@/ai/flows/analyze-product-label';
 import { analyzeBarcode } from '@/ai/flows/analyze-barcode';
-import { CameraOff, Loader2, Scan, ScanLine } from 'lucide-react';
+import { CameraOff, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -27,8 +26,7 @@ import {
 } from '@/components/ui/card';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
-type ScanMode = 'label' | 'barcode';
-type ScanState = 'idle' | 'scanning' | 'analyzing' | 'error' | 'permission_denied';
+type ScanState = 'idle' | 'starting' | 'scanning' | 'analyzing' | 'error' | 'permission_denied';
 
 function SummaryPopupContent({
   scanResult,
@@ -84,158 +82,144 @@ const SCANNER_REGION_ID = 'scanner-region';
 
 export default function ScanPage() {
   const [scanState, setScanState] = useState<ScanState>('idle');
-  const [scanMode, setScanMode] = useState<ScanMode>('label');
   const [scanResult, setScanResult] = useState<AnalyzeProductLabelOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
   
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null); 
+  const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isProcessingRef = useRef(false);
+
   const { toast } = useToast();
 
-  const handleOcrScan = async () => {
-    if (!videoRef.current || !canvasRef.current || !videoRef.current.srcObject) {
-        toast({ variant: 'destructive', title: 'Capture Error', description: 'Could not find video element or stream.' });
-        return;
-    };
-    
-    setScanState('analyzing');
-
-    const canvas = canvasRef.current;
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const context = canvas.getContext('2d');
-    context?.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    const dataUri = canvas.toDataURL('image/jpeg');
-      
-    try {
-      const result = await analyzeProductLabel({ photoDataUri: dataUri });
-      if (result.method !== 'none' && result.analysis) {
-        setScanResult(result);
-        setShowPopup(true);
-      } else {
-        toast({
-          variant: 'destructive',
-          title: 'Analysis Failed',
-          description: "We couldn't read the label clearly. Please try again.",
-        });
-        setScanState('scanning'); // Go back to scanning
-      }
-    } catch (err) {
-        console.error("OCR analysis failed:", err);
-        toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong.' });
-        setScanState('error');
+  const stopAllScanners = useCallback(async () => {
+    // Stop OCR interval
+    if (ocrIntervalRef.current) {
+      clearInterval(ocrIntervalRef.current);
+      ocrIntervalRef.current = null;
     }
-  };
+    
+    // Stop barcode scanner
+    if (scannerRef.current && scannerRef.current.isScanning) {
+      try {
+        await scannerRef.current.stop();
+      } catch (e) {
+        console.error("Error stopping barcode scanner:", e);
+      }
+    }
+    scannerRef.current = null;
+
+    // Stop camera stream
+    if (videoRef.current?.srcObject) {
+      (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const handleScanSuccess = useCallback((result: AnalyzeProductLabelOutput) => {
+    if (isProcessingRef.current) return; // Already handling a success
+    isProcessingRef.current = true;
+    setScanState('analyzing');
+    stopAllScanners();
+    setScanResult(result);
+    setShowPopup(true);
+  }, [stopAllScanners]);
+
+  const startOcrScan = useCallback(() => {
+    if (ocrIntervalRef.current) return; // Already running
+
+    ocrIntervalRef.current = setInterval(async () => {
+      if (!videoRef.current || !canvasRef.current || isProcessingRef.current || scanState !== 'scanning') return;
+      
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      
+      if (video.readyState < video.HAVE_METADATA) return;
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext('2d');
+      context?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUri = canvas.toDataURL('image/jpeg');
+      
+      try {
+        const result = await analyzeProductLabel({ photoDataUri: dataUri });
+        if (result.method === 'ocr' && result.analysis) {
+          handleScanSuccess(result);
+        }
+      } catch (err) {
+        // This is expected to fail often, so we don't show a toast.
+        console.error("OCR analysis failed:", err);
+      }
+    }, 2000); // Run OCR every 2 seconds
+  }, [scanState, handleScanSuccess]);
+  
+  const startBarcodeScanner = useCallback(async () => {
+    if (scannerRef.current) return; // Already running
+
+    try {
+      const qrCodeScanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+      scannerRef.current = qrCodeScanner;
+      await qrCodeScanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        async (decodedText) => {
+           if (isProcessingRef.current) return;
+           const result = await analyzeBarcode({ barcode: decodedText });
+           if (result.method === 'barcode' && result.analysis) {
+             handleScanSuccess(result);
+           }
+        },
+        () => {} // Ignore scan region
+      );
+    } catch (err) {
+      console.error("Error starting barcode scanner:", err);
+      // Don't set state to error, as OCR might still work
+    }
+  }, [handleScanSuccess]);
+
 
   useEffect(() => {
-    let isMounted = true;
-    let localScanner: Html5Qrcode | null = null;
-    let localStream: MediaStream | null = null;
+    const startScanning = async () => {
+      if (scanState !== 'scanning') return;
 
-    const stopScanner = async () => {
-        try {
-            if (localScanner && localScanner.isScanning) {
-                await localScanner.stop();
-            }
-            if (videoRef.current?.srcObject) {
-                (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
-                videoRef.current.srcObject = null;
-            }
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-            }
-        } catch (e) {
-            console.error("Error stopping scanner gracefully:", e);
-        } finally {
-            localScanner = null;
-            scannerRef.current = null;
+      isProcessingRef.current = false;
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
         }
-    };
+        
+        // Start both scanners simultaneously
+        startOcrScan();
+        startBarcodeScanner();
 
-    const startScanner = async () => {
-        if (!isMounted || scanState !== 'scanning') return;
-
-        await stopScanner();
-
-        try {
-            if (scanMode === 'label') {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                localStream = stream;
-                if (isMounted && videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                } else {
-                    stream.getTracks().forEach(track => track.stop());
-                }
-            } else if (scanMode === 'barcode') {
-                if (!document.getElementById(SCANNER_REGION_ID)) {
-                    console.error("Scanner region not found in DOM");
-                    if (isMounted) setScanState('error');
-                    return;
-                }
-                
-                localScanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-                scannerRef.current = localScanner;
-                
-                await localScanner.start(
-                    { facingMode: 'environment' },
-                    { fps: 30, qrbox: { width: 250, height: 250 } },
-                    async (decodedText) => {
-                        if (scanState !== 'scanning') return;
-                        setScanState('analyzing');
-                        try {
-                            const result = await analyzeBarcode({ barcode: decodedText });
-                            if (result.method !== 'none' && result.analysis) {
-                                setScanResult(result);
-                                setShowPopup(true);
-                            } else {
-                                toast({
-                                    variant: 'destructive',
-                                    title: 'Product Not Found',
-                                    description: "Couldn't find this barcode. Try scanning the label.",
-                                });
-                                if (isMounted) setScanState('scanning');
-                            }
-                        } catch (err) {
-                            console.error("Barcode analysis failed:", err);
-                            toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong.' });
-                            if (isMounted) setScanState('error');
-                        }
-                    },
-                    () => {}
-                );
-            }
-        } catch (err) {
-            console.error(`Error starting ${scanMode} scanner:`, err);
-            if (isMounted) setScanState('permission_denied');
-        }
+      } catch (err) {
+        console.error('Error starting camera:', err);
+        setScanState('permission_denied');
+      }
     };
     
     if (scanState === 'scanning') {
-        startScanner();
+      startScanning();
     }
 
+    // Cleanup
     return () => {
-        isMounted = false;
-        stopScanner();
+      stopAllScanners();
     };
-  }, [scanState, scanMode, toast]);
+  }, [scanState, stopAllScanners, startOcrScan, startBarcodeScanner]);
 
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
     setScanResult(null);
     setScanState('idle'); 
+    isProcessingRef.current = false;
   }, []);
 
-  const switchMode = (newMode: ScanMode) => {
-    if (scanMode === newMode) return;
-    setScanState('idle'); // Stop current scanner before switching
-    setScanMode(newMode);
-  };
-
-  const startScanning = () => {
-    setScanState('scanning');
-  }
 
   const renderContent = () => {
     switch(scanState) {
@@ -246,19 +230,22 @@ export default function ScanPage() {
               <CardHeader>
                 <CardTitle>Scan a Product</CardTitle>
                 <CardDescription>
-                  {scanMode === 'label' 
-                    ? 'Point your camera at the ingredients list.'
-                    : 'Center the product barcode in the frame.'}
+                  Point your camera at a product label or barcode.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button size="lg" onClick={startScanning}>
-                   <Scan className="w-5 h-5 mr-2"/> Start Camera
+                <Button size="lg" onClick={() => setScanState('scanning')}>
+                   Start Camera
                 </Button>
               </CardContent>
             </Card>
           </div>
         );
+      case 'starting':
+      case 'scanning':
+      case 'analyzing':
+        // The video and overlays are always present in these states
+        return null; 
       case 'permission_denied':
         return (
           <Alert variant="destructive" className="z-10 m-4">
@@ -279,39 +266,6 @@ export default function ScanPage() {
               </AlertDescription>
           </Alert>
         );
-      case 'analyzing':
-        return (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center pointer-events-none bg-black/50">
-                <div className="flex flex-col items-center justify-center p-6 bg-background/80 rounded-2xl backdrop-blur-sm">
-                  <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
-                  <h2 className="text-2xl font-bold">Analyzing...</h2>
-                  <p className="mt-2 text-muted-foreground">The AI is inspecting your product.</p>
-                </div>
-            </div>
-        );
-      case 'scanning':
-        if (scanMode === 'label') {
-          return (
-            <>
-                <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-transparent pointer-events-none">
-                    {/* Shows a subtle loader to indicate the camera is active */}
-                    {!(videoRef.current && videoRef.current.srcObject) && <Loader2 className="w-16 h-16 animate-spin text-white/50" />}
-                </div>
-            </>
-          );
-        }
-        if (scanMode === 'barcode') {
-          return (
-            <>
-              <div id={SCANNER_REGION_ID} className="w-full h-full" />
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
-                 <div className="w-[250px] h-[250px] border-4 border-dashed border-white/50 rounded-2xl" />
-              </div>
-            </>
-          );
-        }
-        return null;
       default:
         return null;
     }
@@ -319,34 +273,38 @@ export default function ScanPage() {
 
   return (
     <div className="flex flex-col items-center justify-start w-full h-full min-h-screen pt-8 bg-background">
-      <div className="flex gap-2 mb-4">
-        <Button variant={scanMode === 'label' ? 'default' : 'outline'} onClick={() => switchMode('label')}>
-            Scan Label
-        </Button>
-        <Button variant={scanMode === 'barcode' ? 'default' : 'outline'} onClick={() => switchMode('barcode')}>
-            Scan Barcode
-        </Button>
-      </div>
-
       <div className="relative w-full max-w-md mx-auto overflow-hidden aspect-square rounded-2xl bg-muted flex items-center justify-center">
         {renderContent()}
-        <canvas ref={canvasRef} className="hidden"></canvas>
+
+        {/* Video and overlays are visible during scanning states */}
+        {(scanState === 'scanning' || scanState === 'analyzing' || scanState === 'starting') && (
+            <>
+              <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" autoPlay playsInline muted />
+              <div id={SCANNER_REGION_ID} className="absolute inset-0 w-full h-full" />
+              <canvas ref={canvasRef} className="hidden"></canvas>
+            </>
+        )}
+        
+        {/* Overlays */}
+        {(scanState === 'scanning') && (
+             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
+                 <div className="w-[250px] h-[250px] border-4 border-dashed border-white/50 rounded-2xl" />
+                 <p className="mt-4 font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">Scanning...</p>
+              </div>
+        )}
+        
+        {(scanState === 'analyzing') && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center pointer-events-none bg-black/50">
+                <div className="flex flex-col items-center justify-center p-6 bg-background/80 rounded-2xl backdrop-blur-sm">
+                  <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
+                  <h2 className="text-2xl font-bold">Analyzing...</h2>
+                  <p className="mt-2 text-muted-foreground">The AI is inspecting your product.</p>
+                </div>
+            </div>
+        )}
+
       </div>
       
-      {scanState === 'scanning' && scanMode === 'label' && (
-        <div className="z-20 flex flex-col items-center gap-4 mt-4 text-center">
-            <Button
-              onClick={handleOcrScan}
-              size="lg"
-              className="w-48 h-16 rounded-full text-lg shadow-2xl"
-              disabled={!(videoRef.current && videoRef.current.srcObject)}
-            >
-                <ScanLine className="w-6 h-6 mr-2" />
-                Capture Label
-            </Button>
-        </div>
-      )}
-
       <Sheet
         open={showPopup}
         onOpenChange={(open) => !open && handleClosePopup()}

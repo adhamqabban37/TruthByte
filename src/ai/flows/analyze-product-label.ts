@@ -9,13 +9,21 @@
  */
 
 import { ai } from '@/ai/genkit';
+import { z } from 'zod';
 import {
   AnalyzeProductLabelInputSchema,
   type AnalyzeProductLabelInput,
-  AnalyzeProductLabelOutputSchema,
-  type AnalyzeProductLabelOutput,
   GenerateTruthSummaryOutputSchema
 } from './shared';
+
+const AnalyzeProductLabelOutputSchema = z.object({
+  method: z.enum(['ocr', 'barcode', 'none']).describe('The method used to identify the product.'),
+  productName: z.string().optional().describe('The name of the product, if found.'),
+  productBrand: z.string().optional().describe('The brand of the product, if found.'),
+  productImageUrl: z.string().optional().describe('A URL for an image of the product, if found.'),
+  analysis: GenerateTruthSummaryOutputSchema.optional(),
+});
+export type AnalyzeProductLabelOutput = z.infer<typeof AnalyzeProductLabelOutputSchema>;
 
 
 export async function analyzeProductLabel(
@@ -28,9 +36,12 @@ const prompt = ai.definePrompt({
   name: 'analyzeProductLabelPrompt',
   input: { schema: AnalyzeProductLabelInputSchema },
   output: { schema: GenerateTruthSummaryOutputSchema },
-  prompt: `You are an AI assistant designed to provide a "truth summary" of a food product from a single image of its label.
+  prompt: `You are an AI system inside a mobile app that scans product packaging. Your goal is to instantly identify and summarize key information from a product.
+Analyze the image provided and use OCR (Optical Character Recognition) to extract ingredients, nutritional information, and any warnings.
 
-Your task is to read the ingredients list and any nutritional information directly from the image text (OCR). Generate the health summary based *only* on that text.
+Your priority is speed. Generate a fast, simple, human-readable summary.
+
+Highlight key ingredients, point out any unhealthy additives, allergens, or red flags. Provide a quick health rating if possible.
 
 Analyze this image: {{media url=photoDataUri}}
 
@@ -48,7 +59,7 @@ const analyzeProductLabelFlow = ai.defineFlow(
     try {
       const { output } = await prompt(input);
 
-      if (!output) {
+      if (!output || !output.summary) {
         return { method: 'none' };
       }
 

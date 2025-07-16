@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
-type ScanState = 'idle' | 'scanning' | 'analyzing' | 'error' | 'permission_denied';
+type ScanState = 'initializing' | 'scanning' | 'analyzing' | 'error' | 'permission_denied';
 
 function SummaryPopupContent({
   scanResult,
@@ -75,7 +75,7 @@ function SummaryPopupContent({
 const SCANNER_REGION_ID = 'scanner-region';
 
 export default function ScanPage() {
-  const [scanState, setScanState] = useState<ScanState>('idle');
+  const [scanState, setScanState] = useState<ScanState>('initializing');
   const [scanResult, setScanResult] = useState<AnalyzeProductLabelOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
@@ -94,7 +94,6 @@ export default function ScanPage() {
         console.error("Failed to stop scanner gracefully:", err);
     } finally {
         scannerRef.current = null;
-        setScanState('idle');
     }
   }, []);
 
@@ -113,7 +112,7 @@ export default function ScanPage() {
           title: 'Product Not Found',
           description: 'We couldn\'t find a product matching this barcode.',
         });
-        setScanState('idle');
+        setScanState('scanning');
       }
     } catch (err) {
       console.error("Barcode analysis failed:", err);
@@ -154,7 +153,7 @@ export default function ScanPage() {
           title: 'Analysis Failed',
           description: 'We couldn\'t read the label clearly. Please try again.',
         });
-        setScanState('idle');
+        setScanState('scanning');
       }
     } catch (err) {
         console.error("OCR analysis failed:", err);
@@ -163,21 +162,25 @@ export default function ScanPage() {
     }
   };
   
-  // Effect for checking camera permission on mount
+  // Effect for checking camera permission and starting scan
   useEffect(() => {
-    const checkPermission = async () => {
+    const checkPermissionAndStart = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream.getTracks().forEach(track => track.stop()); // Stop immediate use, scanner will re-request
         setHasCameraPermission(true);
-        stream.getTracks().forEach(track => track.stop());
+        setScanState('scanning'); // Permission granted, start scanning
       } catch (error) {
-        console.error("Camera permission denied initial check:", error);
+        console.error("Camera permission denied:", error);
         setHasCameraPermission(false);
         setScanState('permission_denied');
       }
     };
-    checkPermission();
-  }, []);
+
+    if (scanState === 'initializing') {
+        checkPermissionAndStart();
+    }
+  }, [scanState]);
 
   // Effect for managing the scanner lifecycle based on scanState
   useEffect(() => {
@@ -217,20 +220,25 @@ export default function ScanPage() {
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
     setScanResult(null);
-    setScanState('idle'); 
+    setScanState('scanning'); 
   }, []);
+  
+  const cancelScan = useCallback(() => {
+    stopScanner();
+    // Navigate back or to home page. For now, just change state.
+    // In a real app, you might use router.push('/')
+    setScanState('permission_denied'); // A bit of a misuse, but shows the permission denied message
+  }, [stopScanner]);
 
   const renderContent = () => {
-    if (hasCameraPermission === null) {
+    switch(scanState) {
+      case 'initializing':
         return (
             <div className="z-10 flex flex-col items-center justify-center p-4 text-center">
                 <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
-                <h2 className="text-2xl font-bold">Checking Camera...</h2>
+                <h2 className="text-2xl font-bold">Starting Camera...</h2>
             </div>
         )
-    }
-
-    switch(scanState) {
       case 'permission_denied':
         return (
           <div className="z-10 flex flex-col items-center justify-center p-4 text-center">
@@ -245,27 +253,7 @@ export default function ScanPage() {
             <Loader2 className="w-16 h-16 mb-4 text-destructive"/>
             <h2 className="text-2xl font-bold">An Error Occurred</h2>
             <p className="mt-2 text-muted-foreground">Something went wrong. Please try again.</p>
-            <Button onClick={() => setScanState('idle')} className="mt-4">Try Again</Button>
-          </div>
-        );
-      case 'idle':
-        return (
-          <div className="z-10 flex flex-col items-center justify-center p-4 text-center">
-            <Camera className="w-16 h-16 mb-4 text-primary"/>
-            <h2 className="text-2xl font-bold">Ready to Scan</h2>
-            <p className="mt-2 max-w-xs text-center text-muted-foreground">Point your camera at a product barcode to begin.</p>
-            <Button onClick={() => setScanState('scanning')} size="lg" className="mt-6 h-14" disabled={!hasCameraPermission}>
-              <ScanLine className="w-6 h-6 mr-2" />
-              Start Barcode Scan
-            </Button>
-            {!hasCameraPermission && (
-              <Alert variant="destructive" className="mt-4 text-left">
-                <AlertTitle>Camera Access Required</AlertTitle>
-                <AlertDescription>
-                  Please allow camera access in your browser settings to use this feature.
-                </AlertDescription>
-              </Alert>
-            )}
+            <Button onClick={() => setScanState('initializing')} className="mt-4">Try Again</Button>
           </div>
         );
       case 'scanning':
@@ -305,19 +293,13 @@ export default function ScanPage() {
               onClick={handleOcrScan}
               variant="outline"
               size="lg"
-              className="w-48 h-16 rounded-full text-lg shadow-2xl"
+              className="w-48 h-16 rounded-full text-lg shadow-2xl bg-background/80"
             >
                 Scan Label
             </Button>
-            <Button onClick={() => setScanState('idle')} size="lg" variant="destructive" className="w-48 h-16 rounded-full text-lg shadow-2xl">
+            <Button onClick={cancelScan} size="lg" variant="destructive" className="w-48 h-16 rounded-full text-lg shadow-2xl">
               Cancel
             </Button>
-        </div>
-      )}
-
-      {scanState === 'idle' && hasCameraPermission && (
-        <div className="absolute z-20 flex flex-col items-center gap-4 text-center text-foreground bottom-10 px-4">
-            <p className="text-sm text-muted-foreground">If the product has no barcode, start the scan then tap "Scan Label"</p>
         </div>
       )}
 

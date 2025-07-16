@@ -233,7 +233,15 @@ export default function ScannerClient() {
     const cameraStartedCallback = () => {
         const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
         if (videoEl && videoEl.srcObject instanceof MediaStream) {
-            videoEl.play().catch(err => console.error("Video play failed", err));
+            // Check if play() is already being handled to avoid interruption error
+            if (videoEl.paused) {
+                videoEl.play().catch(err => {
+                    if (err.name !== 'AbortError') {
+                        console.error("Video play failed", err)
+                    }
+                });
+            }
+
             videoElRef.current = videoEl;
             const track = videoEl.srcObject.getVideoTracks()[0];
             videoTrackRef.current = track;
@@ -245,6 +253,20 @@ export default function ScannerClient() {
         }
     }
 
+    const onScanSuccess = async (decodedText: string) => {
+      if (scanStateRef.current === 'scanning') {
+        setIsClear(true);
+        setScanState('analyzing');
+        try {
+          const result = await analyzeBarcode({ barcode: decodedText });
+          handleScanSuccess(result as AnalyzeOutput);
+        } catch(e) {
+            console.error("Barcode analysis failed:", e);
+            setScanState('error');
+        }
+      }
+    };
+
     if (scanMode === 'barcode') {
         const barcodeQrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
@@ -252,20 +274,7 @@ export default function ScannerClient() {
             if (qrboxSize > 300) qrboxSize = 300;
             return { width: qrboxSize, height: qrboxSize / 2 }; // Rectangular for barcodes
         };
-        const onScanSuccess = async (decodedText: string) => {
-          if (scanStateRef.current === 'scanning') {
-            setIsClear(true);
-            setScanState('analyzing');
-            try {
-              const result = await analyzeBarcode({ barcode: decodedText });
-              handleScanSuccess(result as AnalyzeOutput);
-            } catch(e) {
-                console.error("Barcode analysis failed:", e);
-                setScanState('error');
-            }
-          }
-        };
-
+        
         scannerRef.current.start(
           config,
           { fps: 10, qrbox: barcodeQrboxFunction, disableFlip: true },
@@ -296,23 +305,24 @@ export default function ScannerClient() {
   }, [scanMode, handleCaptureLabel, handleScanSuccess, toast]);
   
   useEffect(() => {
+    // Start scanner automatically on load if state is idle
+    if (scanState === 'idle') {
+      setScanState('starting');
+    }
+  }, [scanState]);
+  
+  useEffect(() => {
     if (scanState === 'starting') {
       startScanner();
     }
   }, [scanState, startScanner]);
 
   useEffect(() => {
-    // Start scanner automatically on load
-    if (scanState === 'idle') {
-      setScanState('starting');
-    }
-    
     // Cleanup on unmount
     return () => {
       stopScanner();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [stopScanner]);
 
 
   const handleModeChange = (newMode: ScanMode) => {

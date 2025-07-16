@@ -8,7 +8,7 @@ export default function ScanPage() {
       <ScannerUI />
       <div className="absolute z-20 text-center text-white bottom-24">
         <p className="mb-4 text-lg">Place a barcode inside the frame</p>
-        <Link href="/analysis/012345678905" passHref>
+        <Link href="/analysis/3017620422003" passHref>
            <Button variant="outline" className="text-white bg-white/10 border-white/20 backdrop-blur-sm hover:bg-white/20 hover:text-white">
             Manually Enter Barcode
           </Button>

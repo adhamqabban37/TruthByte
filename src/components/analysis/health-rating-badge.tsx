@@ -10,7 +10,7 @@ export function HealthRatingBadge({ rating }: HealthRatingBadgeProps) {
     if (['A', 'B'].includes(upperRating)) {
       return 'bg-healthy text-white border-healthy/80';
     }
-    if (['D', 'F'].includes(upperRating)) {
+    if (['D', 'E', 'F'].includes(upperRating)) {
       return 'bg-unhealthy text-white border-unhealthy/80';
     }
     if (upperRating === 'C') {
@@ -24,7 +24,7 @@ export function HealthRatingBadge({ rating }: HealthRatingBadgeProps) {
     if (['A', 'B'].includes(upperRating)) {
         return 'shadow-[0_0_15px_hsl(var(--healthy)/0.7)]';
     }
-    if (['D', 'F'].includes(upperRating)) {
+    if (['D', 'E', 'F'].includes(upperRating)) {
         return 'shadow-[0_0_15px_hsl(var(--unhealthy)/0.7)]';
     }
     return '';

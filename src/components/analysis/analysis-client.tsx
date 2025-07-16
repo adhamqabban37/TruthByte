@@ -75,7 +75,7 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
     if (['A', 'B'].includes(rating)) {
         return 'shadow-[0_0_20px_hsl(var(--healthy)/0.5)] border-healthy/50';
     }
-    if (['D', 'F'].includes(rating)) {
+    if (['D', 'E', 'F'].includes(rating)) {
         return 'shadow-[0_0_20px_hsl(var(--unhealthy)/0.5)] border-unhealthy/50';
     }
     return 'shadow-md';
@@ -92,8 +92,9 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
               alt={product.name}
               width={128}
               height={128}
-              className="rounded-lg"
+              className="object-contain w-32 h-32 rounded-lg"
               data-ai-hint={product.dataAiHint}
+              unoptimized // Allow external images from Open Food Facts
             />
         </div>
         <div>
@@ -114,22 +115,25 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
         </CardContent>
       </Card>
 
-      <Card className={cn(cardBaseClasses)}>
-        <CardHeader>
-          <CardTitle className="text-2xl font-headline">Key Ingredients</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {analysis.keyIngredients.map((ingredient) => (
-              <IngredientChip
-                key={ingredient.name}
-                productName={product.name}
-                ingredient={ingredient}
-              />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {analysis.keyIngredients?.length > 0 && (
+        <Card className={cn(cardBaseClasses)}>
+          <CardHeader>
+            <CardTitle className="text-2xl font-headline">Key Ingredients</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {analysis.keyIngredients.map((ingredient) => (
+                <IngredientChip
+                  key={ingredient.name}
+                  productName={product.name}
+                  ingredient={ingredient}
+                />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
 
        <Card className={cn(cardBaseClasses)}>
         <CardHeader>

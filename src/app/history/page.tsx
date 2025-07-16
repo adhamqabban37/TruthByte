@@ -80,8 +80,9 @@ export default function HistoryPage() {
                   alt={item.name}
                   width={80}
                   height={80}
-                  className="object-cover h-24 w-28"
+                  className="object-contain h-24 w-28"
                   data-ai-hint={item.dataAiHint}
+                  unoptimized
                 />
                 <div className="flex-grow p-4">
                   <Link href={`/analysis/${item.barcode}`} className="font-semibold hover:underline">

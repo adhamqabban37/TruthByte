@@ -1,10 +1,10 @@
 import { generateTruthSummary } from '@/ai/flows/generate-truth-summary';
 import { AnalysisClient } from '@/components/analysis/analysis-client';
-import { getProductByBarcode } from '@/lib/mock-data';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertTriangle } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Suspense } from 'react';
+import { getProductFromApi } from '@/lib/data-service';
 
 type AnalysisPageProps = {
   params: {
@@ -13,16 +13,17 @@ type AnalysisPageProps = {
 };
 
 async function AnalysisData({ barcode }: { barcode: string }) {
-  const product = getProductByBarcode(barcode);
+  const product = await getProductFromApi(barcode);
 
-  if (!product) {
+  if (!product || !product.ingredients) {
     return (
       <div className="flex items-center justify-center h-full">
         <Alert variant="destructive" className="max-w-md">
           <AlertTriangle className="w-4 h-4" />
           <AlertTitle>Product Not Found</AlertTitle>
           <AlertDescription>
-            The barcode {barcode} could not be found in our database.
+            The barcode {barcode} could not be found or does not have ingredient
+            information in the Open Food Facts database.
           </AlertDescription>
         </Alert>
       </div>
@@ -30,6 +31,12 @@ async function AnalysisData({ barcode }: { barcode: string }) {
   }
 
   const analysis = await generateTruthSummary({ ingredients: product.ingredients });
+
+  // If the API provided a nutriscore, let's use it to override the AI's health rating
+  // to be more consistent with a known standard.
+  if (product.nutriscore) {
+    analysis.healthRating = product.nutriscore.toUpperCase();
+  }
 
   return <AnalysisClient product={product} analysis={analysis} />;
 }

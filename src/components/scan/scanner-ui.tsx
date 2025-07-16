@@ -1,11 +1,13 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { BarcodeDetector } from 'barcode-detector-polyfill';
 
 interface ScannerUIProps {
   onScanComplete: (barcode: string) => void;
   onCameraPermission: (granted: boolean) => void;
 }
+
+// @ts-ignore - BarcodeDetector is not in all TS libs yet
+const BarcodeDetector = window.BarcodeDetector;
 
 export function ScannerUI({ onScanComplete, onCameraPermission }: ScannerUIProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -15,10 +17,16 @@ export function ScannerUI({ onScanComplete, onCameraPermission }: ScannerUIProps
     if (!videoRef.current || videoRef.current.readyState < 2 || !isScanning) {
       return;
     }
+    
+    if (!BarcodeDetector) {
+      console.error('Barcode Detector is not supported in this browser.');
+      // Maybe show a toast to the user.
+      return;
+    }
 
     try {
       const barcodeDetector = new BarcodeDetector({
-        formats: ['ean_13', 'upc_a', 'upc_e', 'ean_8'],
+        formats: ['ean_13', 'upc_a', 'upc_e', 'ean_8', 'qr_code'],
       });
       
       const barcodes = await barcodeDetector.detect(videoRef.current);

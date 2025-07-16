@@ -45,18 +45,23 @@ const analyzeProductLabelFlow = ai.defineFlow(
     outputSchema: AnalyzeProductLabelOutputSchema,
   },
   async (input) => {
-    const { output } = await prompt(input);
+    try {
+      const { output } = await prompt(input);
 
-    if (!output) {
+      if (!output) {
+        return { method: 'none' };
+      }
+
+      return {
+        method: 'ocr',
+        productName: 'Analyzed from Image',
+        productBrand: 'Live Capture',
+        productImageUrl: input.photoDataUri, // Use the captured image itself
+        analysis: output,
+      };
+    } catch (error) {
+      console.error('Error in analyzeProductLabelFlow:', error);
       return { method: 'none' };
     }
-
-    return {
-      method: 'ocr',
-      productName: 'Analyzed from Image',
-      productBrand: 'Live Capture',
-      productImageUrl: input.photoDataUri, // Use the captured image itself
-      analysis: output,
-    };
   }
 );

@@ -33,31 +33,32 @@ const analyzeBarcodeFlow = ai.defineFlow(
     outputSchema: AnalyzeBarcodeOutputSchema,
   },
   async ({ barcode }) => {
-    // 1. Get product data from the API
-    const productInfo = await getProductFromApi(barcode);
+    try {
+      // 1. Get product data from the API
+      const productInfo = await getProductFromApi(barcode);
 
-    if (!productInfo) {
-      console.log(`No product found for barcode: ${barcode}`);
-      return { method: 'none' };
-    }
+      if (!productInfo) {
+        console.log(`No product found for barcode: ${barcode}`);
+        return { method: 'none' };
+      }
 
-    const ingredients = productInfo.ingredients;
-    
-    // 2. If no ingredients, we can't do a full analysis.
-    // Return what we know, but the analysis will be undefined.
-    if (!ingredients) {
-      return {
-        method: 'barcode',
-        productName: productInfo.name,
-        productBrand: productInfo.brand,
-        productImageUrl: productInfo.imageUrl,
-        analysis: undefined // No ingredients to analyze
-      };
-    }
-    
-    // 3. Generate the health summary from the ingredients
-    const summaryResponse = await ai.generate({
-        prompt: `You are an AI assistant designed to provide a summary of a food product based on its ingredients.
+      const ingredients = productInfo.ingredients;
+      
+      // 2. If no ingredients, we can't do a full analysis.
+      // Return what we know, but the analysis will be undefined.
+      if (!ingredients) {
+        return {
+          method: 'barcode',
+          productName: productInfo.name,
+          productBrand: productInfo.brand,
+          productImageUrl: productInfo.imageUrl,
+          analysis: undefined // No ingredients to analyze
+        };
+      }
+      
+      // 3. Generate the health summary from the ingredients
+      const summaryResponse = await ai.generate({
+          prompt: `You are an AI assistant designed to provide a summary of a food product based on its ingredients.
 
 You will receive a list of ingredients and must return a health score from 1 (bad) to 10 (good), a health rating (A-F), a summary of the ingredients and their potential health impacts, a breakdown of the top 4 key ingredients, and a recommendation on whether or not to eat the product.
 
@@ -67,27 +68,31 @@ Ingredients: ${ingredients}
 
 Output format: JSON according to the schema.
 `,
-        output: { schema: GenerateTruthSummaryOutputSchema }
-    });
+          output: { schema: GenerateTruthSummaryOutputSchema }
+      });
 
-    const analysis = summaryResponse.output;
+      const analysis = summaryResponse.output;
 
-    if (!analysis) {
-        console.error("Failed to generate analysis from ingredients");
-        return { method: 'none' };
+      if (!analysis) {
+          console.error("Failed to generate analysis from ingredients");
+          return { method: 'none' };
+      }
+
+      // Override health rating if nutriscore is available from the API
+      if (productInfo.nutriscore) {
+        analysis.healthRating = productInfo.nutriscore.toUpperCase();
+      }
+
+      return {
+        method: 'barcode',
+        productName: productInfo.name,
+        productBrand: productInfo.brand,
+        productImageUrl: productInfo.imageUrl,
+        analysis: analysis,
+      };
+    } catch (error) {
+      console.error('Error in analyzeBarcodeFlow:', error);
+      return { method: 'none' };
     }
-
-    // Override health rating if nutriscore is available from the API
-    if (productInfo.nutriscore) {
-      analysis.healthRating = productInfo.nutriscore.toUpperCase();
-    }
-
-    return {
-      method: 'barcode',
-      productName: productInfo.name,
-      productBrand: productInfo.brand,
-      productImageUrl: productInfo.imageUrl,
-      analysis: analysis,
-    };
   }
 );

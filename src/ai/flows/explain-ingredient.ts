@@ -49,7 +49,17 @@ const explainIngredientFlow = ai.defineFlow(
     outputSchema: ExplainIngredientOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
-    return output!;
+    try {
+      const {output} = await prompt(input);
+      if (!output) {
+        // This case might happen if the model returns a non-parsable response.
+        return { explanation: "Could not generate an explanation for this ingredient." };
+      }
+      return output;
+    } catch (error) {
+      console.error('Error in explainIngredientFlow:', error);
+      // Return a user-friendly error message.
+      return { explanation: "An error occurred while trying to get the explanation. Please try again." };
+    }
   }
 );

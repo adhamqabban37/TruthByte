@@ -10,17 +10,10 @@ import {
 import { AnalysisSummary } from '@/components/scan/analysis-summary';
 import type { Product } from '@/lib/types';
 import { analyzeBarcode } from '@/ai/flows/analyze-barcode';
-import { Camera, Loader2, ScanLine, X, Zap, ZapOff, ZoomIn, ZoomOut } from 'lucide-react';
+import { Loader2, ScanLine, X, Zap, ZapOff, ZoomIn, ZoomOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Html5Qrcode } from 'html5-qrcode';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from '@/components/ui/card';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { Slider } from '@/components/ui/slider';
@@ -221,40 +214,47 @@ export default function ScanPage() {
   }, [handleScanSuccess]);
   
   const startCamera = useCallback(async () => {
-    if (scanStateRef.current !== 'starting') return;
+    if (scanStateRef.current !== 'starting' || !videoRef.current) return;
 
     try {
-      const constraints = { 
-        audio: false,
-        video: { 
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            focusMode: 'continuous',
-        } 
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
+        const constraints = {
+            audio: false,
+            video: {
+                facingMode: 'environment',
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+            },
+        };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        streamRef.current = stream;
 
-      if (videoRef.current) {
+        // Assign stream to video element
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
 
-      const currentTrack = stream.getVideoTracks()[0];
-      trackRef.current = currentTrack;
-      const capabilities = currentTrack.getCapabilities();
+        // This prevents the "play() request was interrupted" error
+        videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play().catch(err => {
+                 console.error("Video play failed:", err)
+                 toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not play video stream.' });
+                 setScanState('error');
+            });
+        };
 
-      if (capabilities.torch) setIsFlashlightAvailable(true);
-      if (capabilities.zoom) setZoomCapabilities(capabilities.zoom);
-      
-      setScanState('scanning');
+        const currentTrack = stream.getVideoTracks()[0];
+        trackRef.current = currentTrack;
+        const capabilities = currentTrack.getCapabilities();
+
+        if (capabilities.torch) setIsFlashlightAvailable(true);
+        if (capabilities.zoom) setZoomCapabilities(capabilities.zoom);
+        
+        setScanState('scanning');
     } catch (err) {
-      console.error("Error starting camera:", err);
-      toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start camera. Please grant permissions and try again.' });
-      setScanState('permission_denied');
+        console.error("Error starting camera:", err);
+        const errorMessage = (err instanceof Error) ? err.message : 'Unknown camera error.';
+        toast({ variant: 'destructive', title: 'Camera Error', description: `Could not start camera: ${errorMessage}. Please grant permissions and try again.` });
+        setScanState('permission_denied');
     }
-  }, [toast]);
+}, [toast]);
   
   const startScanner = useCallback(() => {
       if (!scannerRef.current) {

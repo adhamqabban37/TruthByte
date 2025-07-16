@@ -14,11 +14,10 @@ import {
   AnalyzeProductLabelOutput,
 } from '@/ai/flows/analyze-product-label';
 import { analyzeBarcode } from '@/ai/flows/analyze-barcode';
-import { Camera, CameraOff, Loader2, ScanLine } from 'lucide-react';
+import { CameraOff, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 type ScanState = 'initializing' | 'scanning' | 'analyzing' | 'error' | 'permission_denied';
 
@@ -92,16 +91,14 @@ export default function ScanPage() {
         }
     } catch (err) {
         console.error("Failed to stop scanner gracefully:", err);
-    } finally {
-        scannerRef.current = null;
     }
   }, []);
 
   const handleBarcodeScanSuccess = useCallback(async (decodedText: string) => {
-    setScanState('analyzing');
-    await stopScanner();
-    
     try {
+      setScanState('analyzing');
+      await stopScanner();
+      
       const result = await analyzeBarcode({ barcode: decodedText });
       if (result.method !== 'none' && result.analysis) {
         setScanResult(result);
@@ -110,7 +107,7 @@ export default function ScanPage() {
         toast({
           variant: 'destructive',
           title: 'Product Not Found',
-          description: 'We couldn\'t find a product matching this barcode.',
+          description: 'We couldn\'t find a product matching this barcode. Try scanning the label instead.',
         });
         setScanState('scanning');
       }
@@ -124,7 +121,6 @@ export default function ScanPage() {
   const handleOcrScan = async () => {
     if (scanState !== 'scanning') return;
 
-    setScanState('analyzing');
     const video = document.querySelector(`#${SCANNER_REGION_ID} video`) as HTMLVideoElement;
     
     if (!video || !canvasRef.current) {
@@ -134,6 +130,7 @@ export default function ScanPage() {
     };
 
     try {
+      setScanState('analyzing');
       const canvas = canvasRef.current;
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -166,10 +163,10 @@ export default function ScanPage() {
   useEffect(() => {
     const checkPermissionAndStart = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        stream.getTracks().forEach(track => track.stop()); // Stop immediate use, scanner will re-request
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        stream.getTracks().forEach(track => track.stop());
         setHasCameraPermission(true);
-        setScanState('scanning'); // Permission granted, start scanning
+        setScanState('scanning');
       } catch (error) {
         console.error("Camera permission denied:", error);
         setHasCameraPermission(false);
@@ -177,45 +174,49 @@ export default function ScanPage() {
       }
     };
 
-    if (scanState === 'initializing') {
+    if (hasCameraPermission === null) {
         checkPermissionAndStart();
     }
-  }, [scanState]);
+
+    return () => {
+      stopScanner();
+    }
+  }, [hasCameraPermission, stopScanner]);
 
   // Effect for managing the scanner lifecycle based on scanState
   useEffect(() => {
     if (scanState !== 'scanning' || !hasCameraPermission) {
       return;
     }
-
-    // Initialize and start scanner when state becomes 'scanning'
-    const scanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-    scannerRef.current = scanner;
-
-    scanner.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      handleBarcodeScanSuccess,
-      () => { /* ignore non-scans */ }
-    ).catch(err => {
-      console.error("Error starting barcode scanner:", err);
-      setScanState('permission_denied');
-      toast({
-        variant: 'destructive',
-        title: 'Camera Error',
-        description: 'Could not start the camera. Please check permissions and try again.',
+    
+    if (!scannerRef.current) {
+      scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+    }
+    const scanner = scannerRef.current;
+    
+    if (scanner.getState() === Html5QrcodeScannerState.NOT_STARTED || scanner.getState() === Html5QrcodeScannerState.STOPPED) {
+      scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        handleBarcodeScanSuccess,
+        () => { /* ignore non-scans */ }
+      ).catch(err => {
+        console.error("Error starting barcode scanner:", err);
+        setScanState('permission_denied');
+        toast({
+          variant: 'destructive',
+          title: 'Camera Error',
+          description: 'Could not start the camera. Please check permissions and try again.',
+        });
       });
-    });
+    }
 
-    // Cleanup function to stop the scanner
     return () => {
       if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().catch(err => {
-            console.error("Failed to stop scanner on cleanup:", err);
-        });
+        stopScanner();
       }
     };
-  }, [scanState, hasCameraPermission, handleBarcodeScanSuccess, toast]);
+  }, [scanState, hasCameraPermission, handleBarcodeScanSuccess, stopScanner, toast]);
 
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
@@ -223,20 +224,13 @@ export default function ScanPage() {
     setScanState('scanning'); 
   }, []);
   
-  const cancelScan = useCallback(() => {
-    stopScanner();
-    // Navigate back or to home page. For now, just change state.
-    // In a real app, you might use router.push('/')
-    setScanState('permission_denied'); // A bit of a misuse, but shows the permission denied message
-  }, [stopScanner]);
-
   const renderContent = () => {
     switch(scanState) {
       case 'initializing':
         return (
             <div className="z-10 flex flex-col items-center justify-center p-4 text-center">
                 <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
-                <h2 className="text-2xl font-bold">Starting Camera...</h2>
+                <h2 className="text-2xl font-bold">Requesting Camera...</h2>
             </div>
         )
       case 'permission_denied':
@@ -297,9 +291,6 @@ export default function ScanPage() {
             >
                 Scan Label
             </Button>
-            <Button onClick={cancelScan} size="lg" variant="destructive" className="w-48 h-16 rounded-full text-lg shadow-2xl">
-              Cancel
-            </Button>
         </div>
       )}
 
@@ -327,4 +318,4 @@ export default function ScanPage() {
       </Sheet>
     </div>
   );
-    
+}

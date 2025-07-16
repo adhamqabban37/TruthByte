@@ -57,9 +57,10 @@ const analyzeBarcodeFlow = ai.defineFlow(
         };
       }
       
-      // 3. Generate the health summary from the ingredients
-      const summaryResponse = await ai.generate({
-          prompt: `You are an AI nutrition and ingredient analysis engine inside a mobile app. Your job is to provide a fast, reliable summary of any product by analyzing its label or barcode data. Follow these steps precisely:
+      try {
+        // 3. Generate the health summary from the ingredients
+        const summaryResponse = await ai.generate({
+            prompt: `You are an AI nutrition and ingredient analysis engine inside a mobile app. Your job is to provide a fast, reliable summary of any product by analyzing its label or barcode data. Follow these steps precisely:
 
 Step 1: Ingredient Evaluation
 Flag any of the following as low-quality or red-flag:
@@ -98,45 +99,56 @@ Nutri-Score: ${productInfo.nutriscore || 'Not available'}
 
 Output format: JSON according to the schema.
 `,
-          output: { schema: GenerateTruthSummaryOutputSchema }
-      });
+            output: { schema: GenerateTruthSummaryOutputSchema }
+        });
 
-      const analysis = summaryResponse.output;
+        const analysis = summaryResponse.output;
 
-      if (!analysis) {
-          console.error("Failed to generate analysis from ingredients");
-          return { method: 'none' };
+        if (!analysis) {
+            console.error("Failed to generate analysis from ingredients");
+            // Gracefully degrade: return product info without analysis
+            return {
+              method: 'barcode',
+              productName: productInfo.name,
+              productBrand: productInfo.brand,
+              productImageUrl: productInfo.imageUrl,
+              analysis: undefined, 
+              error: 'AI analysis failed.'
+            };
+        }
+        
+        if (!analysis.productName) analysis.productName = productInfo.name;
+        if (!analysis.productBrand) analysis.productBrand = productInfo.brand;
+        analysis.source = "Open Food Facts";
+        if (productInfo.nutriscore) {
+          analysis.healthRating = productInfo.nutriscore.toUpperCase();
+        }
+
+        return {
+          method: 'barcode',
+          productName: productInfo.name,
+          productBrand: productInfo.brand,
+          productImageUrl: productInfo.imageUrl,
+          analysis: analysis,
+        };
+      } catch (aiError) {
+         console.error('Error during AI analysis step:', aiError);
+          // Gracefully degrade if AI fails: return product info without analysis
+          return {
+            method: 'barcode',
+            productName: productInfo.name,
+            productBrand: productInfo.brand,
+            productImageUrl: productInfo.imageUrl,
+            analysis: undefined,
+            error: 'AI analysis could not be completed.'
+          };
       }
-      
-      // The prompt now handles the product name and brand, but we can ensure it's set
-      if (!analysis.productName) analysis.productName = productInfo.name;
-      if (!analysis.productBrand) analysis.productBrand = productInfo.brand;
-      
-      // Set the source
-      analysis.source = "Open Food Facts";
-
-      // Override health rating if nutriscore is available from the API
-      if (productInfo.nutriscore) {
-        analysis.healthRating = productInfo.nutriscore.toUpperCase();
-      }
-
-      return {
-        method: 'barcode',
-        productName: productInfo.name,
-        productBrand: productInfo.brand,
-        productImageUrl: productInfo.imageUrl,
-        analysis: analysis,
-      };
     } catch (error) {
       console.error('Error in analyzeBarcodeFlow:', error);
-      // Let the client know the flow failed.
       if (error instanceof Error && error.message.includes('429')) {
-        // Specifically handle rate limit errors if needed
         return { method: 'none', error: 'Rate limit exceeded. Please try again later.' };
       }
       return { method: 'none', error: 'Failed to analyze barcode.' };
     }
   }
 );
-
-    

@@ -17,15 +17,7 @@ import {
   GenerateTruthSummaryOutputSchema
 } from './shared';
 import { searchProductsByText } from '../tools/search-products-by-text';
-
-const AnalyzeProductLabelOutputSchema = z.object({
-  method: z.enum(['ocr', 'barcode', 'none']).describe('The method used to identify the product.'),
-  productName: z.string().optional().describe('The name of the product, if found.'),
-  productBrand: z.string().optional().describe('The brand of the product, if found.'),
-  productImageUrl: z.string().optional().describe('A URL for an image of the product, if found.'),
-  analysis: GenerateTruthSummaryOutputSchema.optional(),
-});
-export type AnalyzeProductLabelOutput = z.infer<typeof AnalyzeProductLabelOutputSchema>;
+import { AnalyzeProductLabelOutputSchema, AnalyzeProductLabelOutput } from './shared';
 
 
 export async function analyzeProductLabel(
@@ -119,5 +111,3 @@ const analyzeProductLabelFlow = ai.defineFlow(
     }
   }
 );
-
-    

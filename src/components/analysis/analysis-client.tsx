@@ -10,10 +10,12 @@ import { Button } from '../ui/button';
 import Link from 'next/link';
 import { Share2, Scan } from 'lucide-react';
 import { Separator } from '../ui/separator';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '../ui/badge';
-import { cn } from '@/lib/utils';
+import { cn, imageUrlToDataUrl } from '@/lib/utils';
+import { generateCaption } from '@/ai/flows/generate-caption';
+import { Skeleton } from '../ui/skeleton';
 
 interface AnalysisClientProps {
   product: Product;
@@ -22,8 +24,35 @@ interface AnalysisClientProps {
 
 export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
   const { toast } = useToast();
+  const [caption, setCaption] = useState<string | null>(null);
+  const [isCaptionLoading, setIsCaptionLoading] = useState(false);
 
   useEffect(() => {
+    // Generate caption on load
+    const getCaption = async () => {
+      // Don't generate for placeholder images
+      if (product.imageUrl.includes('placehold.co')) {
+          setCaption(product.name);
+          return;
+      }
+      setIsCaptionLoading(true);
+      try {
+        const dataUri = await imageUrlToDataUrl(product.imageUrl);
+        const result = await generateCaption({
+          productName: product.name,
+          photoDataUri: dataUri,
+        });
+        setCaption(result.caption);
+      } catch (error) {
+        console.error('Failed to generate caption:', error);
+        // Fallback to product name if captioning fails
+        setCaption(product.name);
+      } finally {
+        setIsCaptionLoading(false);
+      }
+    };
+    getCaption();
+
     // Don't save image-based analysis to history
     if (product.barcode === 'ocr-product') {
       return;
@@ -121,6 +150,11 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
         <div>
           <h1 className="text-3xl font-bold font-headline">{product.name}</h1>
           <p className="text-lg text-muted-foreground">{product.brand}</p>
+          {isCaptionLoading ? (
+            <Skeleton className="w-48 h-5 mt-2" />
+          ) : (
+            caption && <p className="mt-2 text-sm italic text-muted-foreground">"{caption}"</p>
+          )}
           {analysis.source && <Badge variant="secondary" className="mt-2">Source: {analysis.source}</Badge>}
         </div>
       </header>

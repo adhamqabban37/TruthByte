@@ -4,4 +4,5 @@ config();
 import '@/ai/flows/explain-ingredient.ts';
 import '@/ai/flows/analyze-barcode';
 import '@/ai/flows/summarize-text';
+import '@/ai/flows/generate-caption';
 import '@/ai/tools/search-products-by-text';

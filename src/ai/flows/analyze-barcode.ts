@@ -80,6 +80,8 @@ Also return a rating from 1–10, with logic:
 If a Nutri-Score is provided, use it to help determine your health score.
 
 Here is the product information:
+Product Name: ${productInfo.name}
+Brand: ${productInfo.brand}
 Ingredients: ${ingredients}
 Nutri-Score: ${productInfo.nutriscore || 'Not available'}
 
@@ -94,6 +96,13 @@ Output format: JSON according to the schema.
           console.error("Failed to generate analysis from ingredients");
           return { method: 'none' };
       }
+      
+      // The prompt now handles the product name and brand, but we can ensure it's set
+      if (!analysis.productName) analysis.productName = productInfo.name;
+      if (!analysis.productBrand) analysis.productBrand = productInfo.brand;
+      
+      // Set the source
+      analysis.source = "Open Food Facts";
 
       // Override health rating if nutriscore is available from the API
       if (productInfo.nutriscore) {

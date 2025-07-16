@@ -163,7 +163,7 @@ export default function ScanPage() {
       scannerRef.current = qrCodeScanner;
       await qrCodeScanner.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        { fps: 30, qrbox: { width: 250, height: 250 } },
         async (decodedText) => {
            if (isProcessingRef.current) return;
            const result = await analyzeBarcode({ barcode: decodedText });
@@ -234,7 +234,7 @@ export default function ScanPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button size="lg" onClick={() => setScanState('scanning')}>
+                <Button size="lg" onClick={() => setScanState('starting')}>
                    Start Camera
                 </Button>
               </CardContent>
@@ -242,6 +242,14 @@ export default function ScanPage() {
           </div>
         );
       case 'starting':
+         return (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center pointer-events-none bg-black/50">
+                <div className="flex flex-col items-center justify-center p-6 bg-background/80 rounded-2xl backdrop-blur-sm">
+                  <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
+                  <h2 className="text-2xl font-bold">Starting Camera...</h2>
+                </div>
+            </div>
+        )
       case 'scanning':
       case 'analyzing':
         // The video and overlays are always present in these states
@@ -270,6 +278,13 @@ export default function ScanPage() {
         return null;
     }
   };
+  
+  useEffect(() => {
+    if (scanState === 'starting') {
+      setScanState('scanning');
+    }
+  }, [scanState]);
+
 
   return (
     <div className="flex flex-col items-center justify-start w-full h-full min-h-screen pt-8 bg-background">
@@ -288,8 +303,11 @@ export default function ScanPage() {
         {/* Overlays */}
         {(scanState === 'scanning') && (
              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
-                 <div className="w-[250px] h-[250px] border-4 border-dashed border-white/50 rounded-2xl" />
-                 <p className="mt-4 font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">Scanning...</p>
+                 <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+                 <div className="relative w-[85%] aspect-video border-4 border-white/80 rounded-2xl shadow-2xl" style={{
+                     boxShadow: '0 0 0 9999px rgba(0,0,0,0.6)'
+                 }} />
+                 <p className="relative mt-4 font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">Align product label or barcode inside the box</p>
               </div>
         )}
         

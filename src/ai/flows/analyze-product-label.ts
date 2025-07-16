@@ -40,8 +40,8 @@ const prompt = ai.definePrompt({
   tools: [searchProductsByText],
   prompt: `You are a real-time product analysis AI integrated into a mobile food scanner app. Your job is to identify the product, analyze its ingredients and nutrition, and generate a simple, fast, and trustworthy summary. Here’s the logic to follow:
 
-🔍 Step 1: Product Detection
-Use OCR to extract the product name, brand, and ingredient list from the provided image. If you recognize a known product name or brand, use the 'searchProductsByText' tool to find it in a database.
+🔍 Step 1: Product Identification
+Use OCR to extract the product name, brand, and ingredient list from the provided image. If you recognize a known product name or brand (e.g., "Nutella"), use the 'searchProductsByText' tool to find it in the Open Food Facts database.
 
 🧠 Step 2: Generate Smart Summary
 Based on the data you have (either from the tool or just from the label text), create a clear, human-readable summary that answers the question: "Why is this product good or bad for you?"
@@ -79,29 +79,35 @@ const analyzeProductLabelFlow = ai.defineFlow(
     try {
       const { output, history } = await prompt(input);
       
-      const toolRequest = history?.findLast(m => m.role === 'model')?.parts.find(p => p.toolRequest);
-
       if (!output || !output.summary) {
+        // The AI couldn't generate a meaningful output
         return { method: 'none' };
       }
 
-      // If a tool was used and returned product info, use that.
-      // The prompt is designed to automatically incorporate this info.
-      // We just need to potentially get the image URL from the tool call if it exists.
-      let imageUrl = input.photoDataUri;
+      // Determine if a tool was successfully used to fetch product data
       const toolResponsePart = history?.findLast(m => m.role === 'tool')?.parts.find(p => p.toolResponse);
-      
-      if (toolResponsePart?.toolResponse) {
-        const toolOutput = toolResponsePart.toolResponse.output as any;
-        if (toolOutput.imageUrl) {
-          imageUrl = toolOutput.imageUrl;
-        }
+      const toolOutput = toolResponsePart?.toolResponse?.output as any;
+
+      let imageUrl;
+      let productName = output.productName;
+      let productBrand = output.productBrand;
+
+      if (toolOutput && toolOutput.name) {
+        // If tool was used successfully, prioritize its data
+        imageUrl = toolOutput.imageUrl || input.photoDataUri;
+        productName = toolOutput.name;
+        productBrand = toolOutput.brand;
+        output.source = 'Open Food Facts';
+      } else {
+        // Fallback to OCR data if tool failed or wasn't used
+        imageUrl = input.photoDataUri;
+        output.source = 'Label Only';
       }
       
       return {
         method: 'ocr',
-        productName: output.productName || 'Analyzed from Image',
-        productBrand: output.productBrand || 'Live Capture',
+        productName: productName || 'Analyzed from Image',
+        productBrand: productBrand || 'Live Capture',
         productImageUrl: imageUrl,
         analysis: output,
       };

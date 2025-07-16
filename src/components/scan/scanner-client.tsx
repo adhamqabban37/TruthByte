@@ -230,9 +230,16 @@ export default function ScannerClient() {
     }
 
     const config = { facingMode: 'environment' };
-    const qrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
+    const barcodeQrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
         const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-        const qrboxSize = Math.floor(minEdge * 0.7);
+        let qrboxSize = Math.floor(minEdge * 0.7);
+        if (qrboxSize > 300) qrboxSize = 300;
+        return { width: qrboxSize, height: qrboxSize / 2 }; // Rectangular for barcodes
+    };
+    const labelQrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
+        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+        let qrboxSize = Math.floor(minEdge * 0.8);
+        if (qrboxSize > 400) qrboxSize = 400;
         return { width: qrboxSize, height: qrboxSize };
     };
 
@@ -266,7 +273,7 @@ export default function ScannerClient() {
 
         scannerRef.current.start(
           config,
-          { fps: 10, qrbox: qrboxFunction, disableFlip: true },
+          { fps: 10, qrbox: barcodeQrboxFunction, disableFlip: true },
           onScanSuccess,
           () => {} // Ignore scan failure
         ).then(cameraStartedCallback).catch(err => {
@@ -278,7 +285,7 @@ export default function ScannerClient() {
     } else if (scanMode === 'label') {
         scannerRef.current.start(
           config,
-          { fps: 10, qrbox: qrboxFunction, disableFlip: true },
+          { fps: 10, qrbox: labelQrboxFunction, disableFlip: true },
           () => {}, // We don't care about barcode success in label mode
           () => {}
         ).then(() => {
@@ -392,6 +399,14 @@ export default function ScannerClient() {
         return null;
     }
   };
+  
+  const getScannerBoxClass = () => {
+    const baseClass = "w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] shadow-2xl relative";
+    if (scanMode === 'barcode') {
+       return cn(baseClass, styles.scanner_barcode, isClear && styles.success, scanState === 'analyzing' && styles.analyzing);
+    }
+    return cn(baseClass, styles.scanner_label, isClear && styles.success, scanState === 'analyzing' && styles.analyzing);
+  }
 
   return (
     <div className="flex flex-col items-center justify-center w-full h-full min-h-screen pt-4 bg-background">
@@ -445,17 +460,15 @@ export default function ScannerClient() {
 
                  <div className="flex-grow" />
                  
-                 <div className={cn(
-                      styles.scanner,
-                      "w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] rounded-3xl border-4 shadow-2xl relative",
-                      isClear && styles.success,
-                      scanState === 'analyzing' && styles.analyzing,
-                      !isClear ? 'border-white/80' : 'border-green-500/80',
-                      { 'box-shadow': '0 0 0 9999px rgba(0,0,0,0.6)' }
-                 )}>
-                    {(scanState === 'scanning' && scanMode === 'barcode') && (
-                        <div className={styles.barcode_line} />
-                    )}
+                 <div className={getScannerBoxClass()}>
+                    <div className={cn(
+                        styles.scanner_box,
+                        { 'box-shadow': '0 0 0 9999px rgba(0,0,0,0.6)' }
+                    )}>
+                        {(scanState === 'scanning' && scanMode === 'barcode') && (
+                            <div className={styles.barcode_line} />
+                        )}
+                    </div>
                  </div>
 
                 <div className="flex flex-col items-center w-full gap-4 pt-4 pointer-events-auto">

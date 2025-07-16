@@ -64,7 +64,7 @@ function SummaryPopupContent({
   }
 
   const product: Product = {
-    barcode: scanResult.method === 'barcode' && scanResult.analysis.productName ? scanResult.analysis.productName : 'ocr-product',
+    barcode: scanResult.method === 'barcode' && scanResult.analysis.source !== 'Label Only (OCR)' ? (scanResult as any).barcode || 'api-product' : 'ocr-product',
     name: productName || 'Analyzed Product',
     brand: productBrand || 'From your camera',
     imageUrl: productImageUrl || 'https://placehold.co/400x400.png',
@@ -108,11 +108,6 @@ export default function ScannerClient() {
   }, [scanState]);
   
   const handleScanSuccess = useCallback((result: AnalyzeOutput) => {
-    if (scanStateRef.current !== 'analyzing') {
-        // Avoid processing multiple results for the same scan
-        return;
-    }
-    
     if (result.method === 'none' || !result.analysis) {
         console.warn("Analysis failed or returned no data.", result.error);
         toast({
@@ -120,13 +115,13 @@ export default function ScannerClient() {
             title: 'Analysis Failed',
             description: result.error || 'Could not analyze the product. Please try again.',
         });
-        setScanState('scanning');
+        setScanState('scanning'); // Go back to scanning
         setIsClear(false);
         return;
     }
     
-    setScanState('success');
     setScanResult(result);
+    setScanState('success');
     setShowPopup(true);
   }, [toast]);
 
@@ -142,7 +137,6 @@ export default function ScannerClient() {
         } catch(e) { console.warn("Could not stop barcode scanner", e) }
     }
     
-    // Stop the camera track if it exists
     if (videoTrackRef.current) {
       if (isFlashlightOn) {
         try {
@@ -206,16 +200,11 @@ export default function ScannerClient() {
 
       const result = await summarizeText({ labelText: text });
       
-      if (result.analysis) {
-        handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
-      } else {
-        // If analysis fails, go back to scanning state
-        toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not read the label. Please try again.' });
-        setScanState('scanning');
-        setIsClear(false);
-      }
+      handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
+      
     } catch(e) {
         console.error("Label analysis failed:", e);
+        toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not read the label. Please try again.' });
         setScanState('scanning');
         setIsClear(false);
     }
@@ -233,7 +222,6 @@ export default function ScannerClient() {
     const cameraStartedCallback = () => {
         const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
         if (videoEl && videoEl.srcObject instanceof MediaStream) {
-            // Check if play() is already being handled to avoid interruption error
             if (videoEl.paused) {
                 videoEl.play().catch(err => {
                     if (err.name !== 'AbortError') {
@@ -259,9 +247,10 @@ export default function ScannerClient() {
         setScanState('analyzing');
         try {
           const result = await analyzeBarcode({ barcode: decodedText });
-          handleScanSuccess(result as AnalyzeOutput);
+          handleScanSuccess({...(result as AnalyzeOutput), barcode: decodedText, method: 'barcode'});
         } catch(e) {
             console.error("Barcode analysis failed:", e);
+            toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not analyze the barcode.' });
             setScanState('error');
         }
       }
@@ -270,9 +259,8 @@ export default function ScannerClient() {
     if (scanMode === 'barcode') {
         const barcodeQrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            let qrboxSize = Math.floor(minEdge * 0.7);
-            if (qrboxSize > 300) qrboxSize = 300;
-            return { width: qrboxSize, height: qrboxSize / 2 }; // Rectangular for barcodes
+            const qrboxSize = Math.floor(minEdge * 0.9);
+            return { width: qrboxSize > 350 ? 350 : qrboxSize, height: qrboxSize > 200 ? 200 : qrboxSize / 1.5 };
         };
         
         scannerRef.current.start(
@@ -295,7 +283,7 @@ export default function ScannerClient() {
         ).then(() => {
             cameraStartedCallback();
             if(ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
-            ocrIntervalRef.current = setInterval(handleCaptureLabel, 2000);
+            ocrIntervalRef.current = setInterval(handleCaptureLabel, 2500);
         }).catch(err => {
             console.error("Error starting camera for label mode:", err);
             toast({ variant: 'destructive', title: 'Camera Error', description: `Could not start camera. Please grant permissions and try again.` });
@@ -305,7 +293,6 @@ export default function ScannerClient() {
   }, [scanMode, handleCaptureLabel, handleScanSuccess, toast]);
   
   useEffect(() => {
-    // Start scanner automatically on load if state is idle
     if (scanState === 'idle') {
       setScanState('starting');
     }
@@ -318,7 +305,6 @@ export default function ScannerClient() {
   }, [scanState, startScanner]);
 
   useEffect(() => {
-    // Cleanup on unmount
     return () => {
       stopScanner();
     };
@@ -534,3 +520,5 @@ export default function ScannerClient() {
     </div>
   );
 }
+
+    

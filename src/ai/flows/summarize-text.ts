@@ -72,7 +72,6 @@ const summarizeTextFlow = ai.defineFlow(
         return {};
       }
 
-      // The prompt now handles the product name and brand, but we can ensure it's set
       output.source = 'Label Only (OCR)';
       
       return {
@@ -88,3 +87,5 @@ const summarizeTextFlow = ai.defineFlow(
     }
   }
 );
+
+    

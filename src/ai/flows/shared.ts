@@ -4,6 +4,7 @@
 import { z } from 'zod';
 
 export const GenerateTruthSummaryOutputSchema = z.object({
+  mainIngredient: z.string().describe('The primary or most significant ingredient in the product.'),
   healthScore: z
     .number()
     .min(1)

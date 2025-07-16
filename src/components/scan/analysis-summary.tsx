@@ -1,5 +1,5 @@
 'use client';
-import type { GenerateTruthSummaryOutput } from '@/ai/flows/generate-truth-summary';
+import type { GenerateTruthSummaryOutput } from '@/ai/flows/shared';
 import type { Product, ScanHistoryItem } from '@/lib/types';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
@@ -82,6 +82,9 @@ export function AnalysisSummary({
                 />
             </div>
             <h2 className="mt-4 text-3xl font-bold">{product.name}</h2>
+            {analysis.mainIngredient && (
+                <p className="text-lg text-white/80">Main Ingredient: {analysis.mainIngredient}</p>
+            )}
         </div>
 
         <div className="flex-grow mt-6 space-y-4 overflow-y-auto">

@@ -299,7 +299,8 @@ export default function ScanPage() {
             <>
                 <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-transparent pointer-events-none">
-                    <Loader2 className="w-16 h-16 animate-spin text-white/50" />
+                    {/* Shows a subtle loader to indicate the camera is active */}
+                    {!(videoRef.current && videoRef.current.srcObject) && <Loader2 className="w-16 h-16 animate-spin text-white/50" />}
                 </div>
             </>
           );
@@ -342,7 +343,7 @@ export default function ScanPage() {
               onClick={handleOcrScan}
               size="lg"
               className="w-48 h-16 rounded-full text-lg shadow-2xl"
-              disabled={!videoRef.current?.srcObject}
+              disabled={!(videoRef.current && videoRef.current.srcObject)}
             >
                 <ScanLine className="w-6 h-6 mr-2" />
                 Capture Label

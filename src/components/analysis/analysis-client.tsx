@@ -135,6 +135,17 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
           </div>
         </CardContent>
       </Card>
+      
+      {analysis.mainIngredient && (
+        <Card className={cn(cardBaseClasses)}>
+            <CardHeader>
+                <CardTitle className="text-xl font-headline">Main Ingredient</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <p className="text-lg font-medium">{analysis.mainIngredient}</p>
+            </CardContent>
+        </Card>
+      )}
 
       {analysis.keyIngredients?.length > 0 && (
         <Card className={cn(cardBaseClasses)}>

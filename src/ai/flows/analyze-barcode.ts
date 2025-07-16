@@ -60,7 +60,7 @@ const analyzeBarcodeFlow = ai.defineFlow(
       const summaryResponse = await ai.generate({
           prompt: `You are an AI assistant designed to provide a summary of a food product based on its ingredients.
 
-You will receive a list of ingredients and must return a health score from 1 (bad) to 10 (good), a health rating (A-F), a summary of the ingredients and their potential health impacts, a breakdown of the top 4 key ingredients, and a recommendation on whether or not to eat the product.
+You will receive a list of ingredients and must return a health score from 1 (bad) to 10 (good), a health rating (A-F), the main ingredient, a summary of the ingredients and their potential health impacts, a breakdown of the top 4 key ingredients, and a recommendation on whether or not to eat the product.
 
 For the recommendation, you must start your response with "Yes:", "No:", or "Caution:" followed by a brief explanation.
 

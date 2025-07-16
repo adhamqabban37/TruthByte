@@ -4,6 +4,8 @@
 import { z } from 'zod';
 
 export const GenerateTruthSummaryOutputSchema = z.object({
+  productName: z.string().optional().describe("The name of the product, if found."),
+  productBrand: z.string().optional().describe("The brand of the product, if found."),
   mainIngredient: z.string().describe('The primary or most significant ingredient in the product.'),
   healthScore: z
     .number()
@@ -24,6 +26,7 @@ export const GenerateTruthSummaryOutputSchema = z.object({
     .string()
     .describe('A recommendation on whether or not to eat the product (e.g. "Yes: This product is healthy..." or "No: This product contains harmful ingredients..." or "Caution: This product should be consumed in moderation..."). Start with "Yes:", "No:", or "Caution:".'),
   healthRating: z.string().describe('A health rating for the product (A-F).'),
+  source: z.string().optional().describe('The source of the product data, e.g. "Open Food Facts" or "Label Only".')
 });
 export type GenerateTruthSummaryOutput = z.infer<typeof GenerateTruthSummaryOutputSchema>;
 

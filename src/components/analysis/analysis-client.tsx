@@ -121,6 +121,7 @@ export function AnalysisClient({ product, analysis }: AnalysisClientProps) {
         <div>
           <h1 className="text-3xl font-bold font-headline">{product.name}</h1>
           <p className="text-lg text-muted-foreground">{product.brand}</p>
+          {analysis.source && <Badge variant="secondary" className="mt-2">Source: {analysis.source}</Badge>}
         </div>
       </header>
 

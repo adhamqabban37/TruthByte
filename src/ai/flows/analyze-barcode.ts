@@ -109,7 +109,12 @@ Output format: JSON according to the schema.
       };
     } catch (error) {
       console.error('Error in analyzeBarcodeFlow:', error);
-      return { method: 'none' };
+      // Let the client know the flow failed.
+      if (error instanceof Error && error.message.includes('429')) {
+        // Specifically handle rate limit errors if needed
+        return { method: 'none', error: 'Rate limit exceeded. Please try again later.' };
+      }
+      return { method: 'none', error: 'Failed to analyze barcode.' };
     }
   }
 );

@@ -68,7 +68,7 @@ const summarizeTextFlow = ai.defineFlow(
       const { output } = await prompt(input);
       
       if (!output || !output.summary) {
-        return { methodName: 'none' };
+        return {};
       }
 
       // The prompt now handles the product name and brand, but we can ensure it's set
@@ -82,7 +82,8 @@ const summarizeTextFlow = ai.defineFlow(
 
     } catch (error) {
       console.error('Error in summarizeTextFlow:', error);
-      return { methodName: 'none' };
+      // Return an empty object on failure to prevent crashes
+      return {};
     }
   }
 );

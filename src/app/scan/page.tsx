@@ -87,7 +87,7 @@ function SummaryPopupContent({
 const SCANNER_REGION_ID = 'scanner-region';
 
 export default function ScanPage() {
-  const [scanState, setScanState] = useState<ScanState>('idle');
+  const [scanState, setScanState] = useState<ScanState>('starting');
   const [scanResult, setScanResult] = useState<AnalyzeOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -103,16 +103,16 @@ export default function ScanPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
 
   const { toast } = useToast();
 
   const stopScanner = useCallback(async (isSuccessCleanup = false) => {
      try {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-            abortControllerRef.current = null;
+        if (ocrIntervalRef.current) {
+          clearInterval(ocrIntervalRef.current);
+          ocrIntervalRef.current = null;
         }
 
         if (scannerRef.current?.isScanning) {
@@ -174,16 +174,60 @@ export default function ScanPage() {
     }, 500);
     
   }, [stopScanner]);
+
+  const handleCaptureLabel = useCallback(async () => {
+    if (scanStateRef.current !== 'scanning' || !videoRef.current || !canvasRef.current) return;
+    
+    // To avoid multiple OCR requests running at once.
+    if(scanStateRef.current === 'analyzing') return;
+
+    setScanState('analyzing');
+
+    try {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      
+      canvas.width = video.videoWidth * 1.5;
+      canvas.height = video.videoHeight * 1.5;
+      
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error("Could not get canvas context");
+
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUri = canvas.toDataURL('image/jpeg', 0.8);
+      
+      const { data: { text } } = await Tesseract.recognize(dataUri, 'eng');
+      
+      if (!text || text.trim().length < 10) {
+        // Not enough text, go back to scanning mode.
+        setScanState('scanning');
+        return;
+      }
+
+      const result = await summarizeText({ labelText: text });
+      
+      if (result.analysis) {
+        handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
+      } else {
+        // AI couldn't make sense of it, go back to scanning
+        setScanState('scanning');
+      }
+    } catch(e) {
+        console.error("Label analysis failed:", e);
+        // If OCR fails, just go back to scanning. Don't show an error toast
+        // as this is an automatic background process.
+        setScanState('scanning');
+    }
+  }, [handleScanSuccess]);
   
   const startCamera = useCallback(async () => {
-    if (scanStateRef.current !== 'idle') return;
-    setScanState('starting');
+    if (scanStateRef.current !== 'starting') return;
 
     try {
       const constraints = { 
         audio: false,
         video: { 
-            facingMode: { ideal: 'environment' },
+            facingMode: 'environment',
             width: { ideal: 1280 },
             height: { ideal: 720 },
             focusMode: 'continuous',
@@ -239,67 +283,33 @@ export default function ScanPage() {
             setScanState('error');
           }
       });
-  }, [handleScanSuccess]);
+
+      // Start OCR loop
+      if(ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
+      ocrIntervalRef.current = setInterval(handleCaptureLabel, 2000);
+
+  }, [handleScanSuccess, handleCaptureLabel]);
   
   useEffect(() => {
+    if (scanState === 'starting') {
+      startCamera();
+    }
     if (scanState === 'scanning') {
       startScanner();
     }
-  }, [scanState, startScanner]);
 
-  const handleCaptureLabel = useCallback(async () => {
-    if (scanStateRef.current !== 'scanning' || !videoRef.current || !canvasRef.current) return;
-    setScanState('analyzing');
-
-    try {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      canvas.width = video.videoWidth * 2;
-      canvas.height = video.videoHeight * 2;
-      
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error("Could not get canvas context");
-
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUri = canvas.toDataURL('image/jpeg', 0.9);
-      
-      const { data: { text } } = await Tesseract.recognize(dataUri, 'eng');
-      
-      if (!text || text.trim().length < 10) {
-        toast({
-          title: 'No Text Found',
-          description: "Couldn't read any text from the label. Try getting closer or use the barcode.",
-        });
-        setScanState('scanning');
-        return;
+    return () => {
+      if (ocrIntervalRef.current) {
+        clearInterval(ocrIntervalRef.current);
       }
-
-      const result = await summarizeText({ labelText: text });
-      
-      if (result.analysis) {
-        handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
-      } else {
-        toast({
-          title: 'Analysis Failed',
-          description: "Couldn't identify a product from the label. Try getting closer or use the barcode.",
-        });
-        setScanState('scanning');
-      }
-    } catch(e) {
-        if (e instanceof Error && e.name !== 'AbortError') {
-             console.error("Label analysis failed:", e);
-             toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not analyze the label. Please try again.' });
-             setScanState('scanning');
-        }
     }
-  }, [toast, handleScanSuccess]);
+  }, [scanState, startCamera, startScanner]);
 
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
     setScanResult(null);
-    stopScanner().then(startCamera);
-  }, [startCamera, stopScanner]);
+    setScanState('starting'); // Go back to starting state to re-init camera
+  }, []);
 
   const toggleFlashlight = useCallback(() => {
     if (trackRef.current && isFlashlightAvailable) {
@@ -325,7 +335,12 @@ export default function ScanPage() {
   }
 
   useEffect(() => {
+    // This effect runs when the component mounts.
+    // We start in the 'starting' state.
+    setScanState('starting');
+
     return () => {
+      // Cleanup when the component unmounts.
       stopScanner();
     };
   }, [stopScanner]);
@@ -333,24 +348,8 @@ export default function ScanPage() {
 
   const renderContent = () => {
     switch(scanState) {
-      case 'idle':
-        return (
-          <div className="z-10 flex flex-col items-center justify-center p-4 text-center">
-            <Card className="text-center">
-              <CardHeader>
-                <CardTitle>Scan a Product</CardTitle>
-                <CardDescription>
-                  Point your camera at a product label or barcode.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button size="lg" onClick={startCamera}>
-                   Start Camera
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        );
+      case 'idle': // Should not happen with auto-start
+        return null;
       case 'starting':
       case 'analyzing':
          return (
@@ -373,6 +372,7 @@ export default function ScanPage() {
               <AlertTitle>Camera Access Denied</AlertTitle>
               <AlertDescription>
                 To scan products, please grant camera access in your browser settings and refresh the page.
+                 <Button onClick={() => window.location.reload()} className="w-full mt-4">Refresh Page</Button>
               </AlertDescription>
             </Alert>
           </div>
@@ -383,7 +383,7 @@ export default function ScanPage() {
               <AlertTitle>An Error Occurred</AlertTitle>
               <AlertDescription>
                 Something went wrong. Please try again.
-                <Button onClick={() => stopScanner().then(startCamera)} className="mt-4 w-full">Try Again</Button>
+                <Button onClick={() => setScanState('starting')} className="mt-4 w-full">Try Again</Button>
               </AlertDescription>
           </Alert>
         );
@@ -405,7 +405,7 @@ export default function ScanPage() {
             </>
         )}
         
-        {(scanState === 'scanning' || scanState === 'success') && (
+        {(scanState === 'scanning' || scanState === 'success' || scanState === 'analyzing') && (
              <div className="absolute inset-0 z-10 flex flex-col items-center justify-between p-4 pointer-events-none">
                  <div className="flex justify-between w-full pointer-events-auto">
                     {zoomCapabilities ? (
@@ -454,6 +454,7 @@ export default function ScanPage() {
                       styles.scanner,
                       "w-[80vw] h-[80vw] max-w-[400px] max-h-[400px] rounded-full border-4 border-white/90 shadow-2xl relative",
                       isSuccess && styles.success,
+                      scanState === 'analyzing' && styles.analyzing,
                       { 'box-shadow': '0 0 0 9999px rgba(0,0,0,0.5)' }
                  )}>
                     {!isSuccess && scanState === 'scanning' && (
@@ -467,19 +468,9 @@ export default function ScanPage() {
 
                 <div className="flex flex-col items-center w-full gap-4 pt-4 pointer-events-auto">
                     {scanState === 'scanning' && (
-                        <>
-                            <Button
-                                size="lg"
-                                className="w-20 h-20 rounded-full shadow-lg bg-primary hover:bg-primary/80"
-                                onClick={handleCaptureLabel}
-                            >
-                                <Camera className="w-8 h-8" />
-                                <span className="sr-only">Capture Label</span>
-                            </Button>
-                            <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
-                                Align product in the circle
-                            </p>
-                        </>
+                        <p className="font-semibold text-white bg-black/50 px-3 py-1 rounded-lg">
+                            Align product in the circle
+                        </p>
                     )}
                  </div>
               </div>

@@ -9,9 +9,14 @@
 }
 
 .scanner.success {
-  border-color: #22c55e;
-  box-shadow: 0 0 30px #22c55e;
+  border-color: hsl(var(--healthy));
+  box-shadow: 0 0 30px hsl(var(--healthy));
 }
+
+.scanner.analyzing {
+  border-color: hsl(var(--secondary));
+}
+
 
 .scanner_wave {
   position: absolute;

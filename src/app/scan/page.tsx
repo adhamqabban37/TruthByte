@@ -94,8 +94,8 @@ export default function ScanPage() {
   const { toast } = useToast();
 
   const handleOcrScan = async () => {
-    if (!videoRef.current || !canvasRef.current) {
-        toast({ variant: 'destructive', title: 'Capture Error', description: 'Could not find video element.' });
+    if (!videoRef.current || !canvasRef.current || !videoRef.current.srcObject) {
+        toast({ variant: 'destructive', title: 'Capture Error', description: 'Could not find video element or stream.' });
         return;
     };
     
@@ -142,6 +142,9 @@ export default function ScanPage() {
                 (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
                 videoRef.current.srcObject = null;
             }
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+            }
         } catch (e) {
             console.error("Error stopping scanner gracefully:", e);
         } finally {
@@ -158,9 +161,9 @@ export default function ScanPage() {
         try {
             if (scanMode === 'label') {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                localStream = stream;
                 if (isMounted && videoRef.current) {
                     videoRef.current.srcObject = stream;
-                    localStream = stream;
                 } else {
                     stream.getTracks().forEach(track => track.stop());
                 }
@@ -295,7 +298,7 @@ export default function ScanPage() {
           return (
             <>
                 <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20" style={{'pointerEvents': 'none'}}>
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-transparent pointer-events-none">
                     <Loader2 className="w-16 h-16 animate-spin text-white/50" />
                 </div>
             </>

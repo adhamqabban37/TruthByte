@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, Suspense, useRef } from 'react';
+import { useState, Suspense, useCallback } from 'react';
 import { ScannerUI } from '@/components/scan/scanner-ui';
 import {
   Sheet,
@@ -13,7 +13,6 @@ import type { Product } from '@/lib/types';
 import type { GenerateTruthSummaryOutput } from '@/ai/flows/generate-truth-summary';
 import { generateTruthSummary } from '@/ai/flows/generate-truth-summary';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CameraOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -30,7 +29,7 @@ function SummaryPopupContent({
   );
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  useState(() => {
     async function fetchData() {
       try {
         const fetchedProduct = await getProductFromApi(barcode);
@@ -65,7 +64,7 @@ function SummaryPopupContent({
       }
     }
     fetchData();
-  }, [barcode]);
+  });
 
   if (error) {
     return (
@@ -112,56 +111,53 @@ function SummaryPopupContent({
 export default function ScanPage() {
   const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [showScanner, setShowScanner] = useState(true);
   const { toast } = useToast();
 
-  useEffect(() => {
-    const getCameraPermission = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        setHasCameraPermission(true);
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      } catch (error) {
-        console.error('Error accessing camera:', error);
-        setHasCameraPermission(false);
-        toast({
+   const handleCameraPermission = useCallback((permission: boolean) => {
+    if (hasCameraPermission === permission) return; // Avoid redundant state updates
+    
+    setHasCameraPermission(permission);
+    if (!permission) {
+         toast({
           variant: 'destructive',
           title: 'Camera Access Denied',
           description: 'Please enable camera permissions in your browser settings to use this app.',
         });
-      }
-    };
-
-    getCameraPermission();
-    
-    return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
-      }
     }
-  }, [toast]);
+  }, [toast, hasCameraPermission]);
 
-  const handleScanComplete = (barcode: string) => {
+  const handleScanComplete = useCallback((barcode: string) => {
+    setShowScanner(false);
     setScannedBarcode(barcode);
-  };
+  }, []);
 
-  const handleClosePopup = () => {
+  const handleClosePopup = useCallback(() => {
     setScannedBarcode(null);
-  };
+    // Delay re-enabling the scanner to allow the sheet to close
+    setTimeout(() => setShowScanner(true), 300);
+  }, []);
 
   return (
     <div className="relative flex flex-col items-center justify-center w-full h-full min-h-screen p-4 bg-background">
       <div className="relative w-full max-w-md mx-auto overflow-hidden aspect-square rounded-2xl">
-        <ScannerUI onScanComplete={handleScanComplete} videoRef={videoRef} />
+        {showScanner && (
+            <ScannerUI 
+                onScanComplete={handleScanComplete} 
+                onCameraPermission={handleCameraPermission} 
+            />
+        )}
         {hasCameraPermission === false && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center bg-black/70 text-white">
                 <CameraOff className="w-16 h-16 mb-4 text-destructive"/>
                 <h2 className="text-2xl font-bold">Camera Access Denied</h2>
                 <p className="mt-2 text-white/80">To scan barcodes, please grant camera access in your browser settings.</p>
             </div>
+        )}
+         {hasCameraPermission !== false && !showScanner && (
+             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center bg-background">
+                <p className="text-lg text-muted-foreground">Processing...</p>
+             </div>
         )}
       </div>
 
@@ -177,7 +173,7 @@ export default function ScanPage() {
           side="bottom"
           className="h-screen max-h-[90vh] p-0 bg-black/80 backdrop-blur-sm border-none rounded-t-2xl"
         >
-          <SheetHeader className="hidden">
+          <SheetHeader>
             <SheetTitle className="sr-only">
               Product Analysis Summary
             </SheetTitle>

@@ -1,77 +1,81 @@
 'use client';
-import { useEffect, useState, useCallback, RefObject } from 'react';
+import { useEffect, useRef } from 'react';
+import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
 interface ScannerUIProps {
   onScanComplete: (barcode: string) => void;
-  videoRef: RefObject<HTMLVideoElement>;
+  onCameraPermission: (permission: boolean) => void;
 }
 
-export function ScannerUI({ onScanComplete, videoRef }: ScannerUIProps) {
-  const [isScanning, setIsScanning] = useState(true);
+const qrcodeRegionId = "html5qr-code-full-region";
 
-  const scanFrame = useCallback(async () => {
-    // This is a browser API, so we need to check for it.
-    // @ts-ignore - BarcodeDetector is not in all TS libs yet
-    if (!('BarcodeDetector' in window)) {
-      console.error('Barcode Detector is not supported in this browser.');
-      return;
-    }
+export function ScannerUI({ onScanComplete, onCameraPermission }: ScannerUIProps) {
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
-    if (!videoRef.current || videoRef.current.readyState < 2 || !isScanning) {
-      return;
+  useEffect(() => {
+    const config = { 
+      fps: 10, 
+      qrbox: { width: 250, height: 250 },
+      rememberLastUsedCamera: true,
+      supportedScanTypes: [],
+      formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.QR_CODE
+      ]
+    };
+
+    const onScanSuccess = (decodedText: string) => {
+      // Cleanup the scanner on success to stop the camera
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(error => {
+          console.error("Failed to clear html5-qrcode scanner.", error);
+        });
+        scannerRef.current = null;
+      }
+      onScanComplete(decodedText);
+    };
+
+    const onScanFailure = (error: any) => {
+        // This is called on each frame if no barcode is found. 
+        // We can ignore it for our purposes.
+    };
+    
+    const onCameraStart = () => {
+        onCameraPermission(true);
     }
     
-    try {
-      // @ts-ignore
-      const barcodeDetector = new window.BarcodeDetector({
-        formats: ['ean_13', 'upc_a', 'upc_e', 'ean_8', 'qr_code'],
-      });
-      
-      const barcodes = await barcodeDetector.detect(videoRef.current);
-      
-      if (barcodes.length > 0) {
-        setIsScanning(false);
-        const barcode = barcodes[0].rawValue;
-        if (barcode) {
-          onScanComplete(barcode);
-        }
-      }
-    } catch (error) {
-      console.error('Barcode detection failed:', error);
+    const onCameraError = () => {
+        onCameraPermission(false);
     }
-  }, [isScanning, onScanComplete, videoRef]);
 
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      scanFrame();
-    }, 500); // Scan every 500ms
+    // Only create a new scanner if one doesn't exist
+    if (!scannerRef.current) {
+        const html5QrcodeScanner = new Html5QrcodeScanner(
+            qrcodeRegionId, 
+            config, 
+            false // verbose
+        );
+        html5QrcodeScanner.render(onScanSuccess, onScanFailure, onCameraStart, onCameraError);
+        scannerRef.current = html5QrcodeScanner;
+    }
+
 
     return () => {
-      clearInterval(intervalId);
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(error => {
+          console.error("Failed to clear html5-qrcode scanner on cleanup.", error);
+        });
+        scannerRef.current = null;
+      }
     };
-  }, [scanFrame]);
-
-  // Restart scanning when the popup is closed
-  useEffect(() => {
-    if (!isScanning) {
-        const timer = setTimeout(() => setIsScanning(true), 3000); // Cooldown before scanning again
-        return () => clearTimeout(timer);
-    }
-  }, [isScanning])
+  }, [onScanComplete, onCameraPermission]);
 
   return (
     <div className="relative w-full h-full">
-      <video
-        ref={videoRef}
-        className="object-cover w-full h-full"
-        autoPlay
-        playsInline
-        muted
-      />
-      <div className="absolute inset-0 border-8 border-white/50 rounded-2xl pointer-events-none" />
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-full h-1 bg-red-500/70 animate-pulse" />
-      </div>
+      <div id={qrcodeRegionId} className="w-full h-full" />
     </div>
   );
 }

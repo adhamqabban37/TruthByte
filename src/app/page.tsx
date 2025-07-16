@@ -1,21 +1,9 @@
 'use client';
 import Link from 'next/link';
-import Ribbons from '@/components/ribbons';
 
 export default function Home() {
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen p-4 overflow-hidden md:p-6 bg-background">
-      <div className="absolute inset-0">
-        <Ribbons
-            baseThickness={30}
-            colors={['#FFFFFF', '#F4EEE1', '#88B04B']}
-            speedMultiplier={0.5}
-            maxAge={500}
-            enableFade={true}
-            enableShaderEffect={true}
-        />
-      </div>
-
       <div className="z-10 flex flex-col items-center justify-center w-full max-w-md text-center">
         <Link href="/scan" passHref>
           <div className="relative flex items-center justify-center w-64 h-64 transition-all duration-300 rounded-full cursor-pointer group">

@@ -9,20 +9,8 @@
  */
 
 import { ai } from '@/ai/genkit';
-import { z } from 'zod';
-import { GenerateTruthSummaryOutputSchema } from './shared';
+import { GenerateTruthSummaryOutputSchema, SummarizeTextInputSchema, type SummarizeTextInput, SummarizeTextOutputSchema, type SummarizeTextOutput } from './shared';
 
-export const SummarizeTextInputSchema = z.object({
-  labelText: z.string().describe("The raw text extracted from a product label using OCR."),
-});
-export type SummarizeTextInput = z.infer<typeof SummarizeTextInputSchema>;
-
-export const SummarizeTextOutputSchema = z.object({
-  productName: z.string().optional().describe('The name of the product, if found.'),
-  productBrand: z.string().optional().describe('The brand of the product, if found.'),
-  analysis: GenerateTruthSummaryOutputSchema.optional(),
-});
-export type SummarizeTextOutput = z.infer<typeof SummarizeTextOutputSchema>;
 
 export async function summarizeText(
   input: SummarizeTextInput

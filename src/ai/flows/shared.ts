@@ -25,3 +25,26 @@ export const GenerateTruthSummaryOutputSchema = z.object({
   healthRating: z.string().describe('A health rating for the product (A-F).'),
 });
 export type GenerateTruthSummaryOutput = z.infer<typeof GenerateTruthSummaryOutputSchema>;
+
+
+export const AnalyzeProductLabelInputSchema = z.object({
+  photoDataUri: z
+    .string()
+    .describe(
+      "A photo of a product label, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
+    ),
+});
+export type AnalyzeProductLabelInput = z.infer<
+  typeof AnalyzeProductLabelInputSchema
+>;
+
+export const AnalyzeProductLabelOutputSchema = z.object({
+  method: z.enum(['ocr', 'barcode', 'none']).describe('The method used to identify the product.'),
+  productName: z.string().optional().describe('The name of the product, if found.'),
+  productBrand: z.string().optional().describe('The brand of the product, if found.'),
+  productImageUrl: z.string().optional().describe('A URL for an image of the product, if found.'),
+  analysis: GenerateTruthSummaryOutputSchema.optional(),
+});
+export type AnalyzeProductLabelOutput = z.infer<
+  typeof AnalyzeProductLabelOutputSchema
+>;

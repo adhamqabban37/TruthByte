@@ -12,34 +12,15 @@
  */
 
 import { ai } from '@/ai/genkit';
-import { z } from 'zod';
+import { getProductFromBarcode } from '../tools/get-product-from-barcode';
 import {
-  GenerateTruthSummaryOutput,
+  AnalyzeProductLabelInputSchema,
+  type AnalyzeProductLabelInput,
+  AnalyzeProductLabelOutputSchema,
+  type AnalyzeProductLabelOutput,
   GenerateTruthSummaryOutputSchema,
 } from './shared';
-import { getProductFromBarcode } from '../tools/get-product-from-barcode';
 
-const AnalyzeProductLabelInputSchema = z.object({
-  photoDataUri: z
-    .string()
-    .describe(
-      "A photo of a product label, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
-    ),
-});
-export type AnalyzeProductLabelInput = z.infer<
-  typeof AnalyzeProductLabelInputSchema
->;
-
-export const AnalyzeProductLabelOutputSchema = z.object({
-  method: z.enum(['ocr', 'barcode', 'none']).describe('The method used to identify the product.'),
-  productName: z.string().optional().describe('The name of the product, if found.'),
-  productBrand: z.string().optional().describe('The brand of the product, if found.'),
-  productImageUrl: z.string().optional().describe('A URL for an image of the product, if found.'),
-  analysis: GenerateTruthSummaryOutputSchema.optional(),
-});
-export type AnalyzeProductLabelOutput = z.infer<
-  typeof AnalyzeProductLabelOutputSchema
->;
 
 export async function analyzeProductLabel(
   input: AnalyzeProductLabelInput
@@ -56,7 +37,7 @@ const prompt = ai.definePrompt({
 
 Your first priority is to read the ingredients list and any nutritional information directly from the image text (OCR). If you can clearly read the ingredients, generate the health summary based *only* on that text.
 
-If the ingredients text is unclear, unreadable, or incomplete, your second priority is to find and decode a barcode in the image. If a barcode is found, use the 'getProductFromBarcode' tool to get product information. Use the ingredients from the tool's response to generate the health summary.
+If the ingredients text is unclear, unreadable, or incomplete, your second priority is to find and decode a barcode in the image. If a barcode is found, use the 'getProductFrombarcode' tool to get product information. Use the ingredients from the tool's response to generate the health summary.
 
 If you cannot read the text and cannot find a barcode, you must stop.
 
@@ -76,7 +57,7 @@ const analyzeProductLabelFlow = ai.defineFlow(
     const llmResponse = await prompt(input);
     const toolCalls = llmResponse.toolCalls();
 
-    if (toolCalls.length > 0) {
+    if (toolCalls.length > 0 && toolCalls[0].tool === 'getProductFromBarcode') {
       // Barcode was used
       const toolResponse = await getProductFromBarcode(toolCalls[0].input);
       if (!toolResponse) {

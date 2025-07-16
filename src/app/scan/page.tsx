@@ -192,68 +192,71 @@ export default function ScanPage() {
     
   }, [stopScanner, scanState]);
   
-  const startScanner = useCallback(async () => {
+  const startCamera = useCallback(async () => {
     setScanState('starting');
     try {
-      // Use flexible constraints to support more devices
-      const constraints = {
-        video: {
-          facingMode: 'environment',
-          focusMode: 'continuous',
-        }
-      };
+      const constraints = { video: { facingMode: 'environment' } };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       const currentTrack = stream.getVideoTracks()[0];
       trackRef.current = currentTrack;
       const capabilities = currentTrack.getCapabilities();
 
-      if (capabilities.torch) {
-        setIsFlashlightAvailable(true);
-      }
-      if (capabilities.zoom) {
-        setZoomCapabilities(capabilities.zoom);
-      }
-
+      if (capabilities.torch) setIsFlashlightAvailable(true);
+      if (capabilities.zoom) setZoomCapabilities(capabilities.zoom);
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
-      
-      const qrCodeScanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-      scannerRef.current = qrCodeScanner;
-      
-      qrCodeScanner.start(
-        { facingMode: 'environment' },
-        { fps: 30, qrbox: { width: 300, height: 150 }, showTorchButtonIfSupported: false, aspectRatio: 1.0 },
-        async (decodedText) => {
-           if (scanState === 'scanning') {
-             setScanState('analyzing');
-             try {
-               abortControllerRef.current = new AbortController();
-               const result = await analyzeBarcode({ barcode: decodedText, signal: abortControllerRef.current.signal });
-               handleScanSuccess(result);
-             } catch(e) {
-                if (e.name !== 'AbortError') {
-                    console.error("Barcode analysis failed:", e);
-                    setScanState('scanning');
-                }
-             }
-           }
-        },
-        (errorMessage) => { /* ignore */ }
-      ).catch(err => {
-          console.error("Error starting barcode scanner:", err);
-      });
-
+      // Camera is up, now we can start the barcode scanner
       setScanState('scanning');
     } catch (err) {
       console.error("Error starting camera:", err);
       toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start camera. Please grant permissions and try again.' });
       setScanState('permission_denied');
     }
-  }, [toast, handleScanSuccess, scanState]);
+  }, [toast]);
   
+  const startScanner = useCallback(async () => {
+      try {
+        const qrCodeScanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+        scannerRef.current = qrCodeScanner;
+        
+        qrCodeScanner.start(
+          { facingMode: 'environment' },
+          { fps: 30, qrbox: { width: 300, height: 150 }, showTorchButtonIfSupported: false, aspectRatio: 1.0 },
+          async (decodedText) => {
+            if (scanState === 'scanning') {
+              setScanState('analyzing');
+              try {
+                abortControllerRef.current = new AbortController();
+                const result = await analyzeBarcode({ barcode: decodedText, signal: abortControllerRef.current.signal });
+                handleScanSuccess(result);
+              } catch(e) {
+                  if (e.name !== 'AbortError') {
+                      console.error("Barcode analysis failed:", e);
+                      setScanState('scanning');
+                  }
+              }
+            }
+          },
+          (errorMessage) => { /* ignore */ }
+        ).catch(err => {
+            console.error("Error starting barcode scanner:", err);
+            // Don't set state to error here as the camera might still work for OCR
+        });
+      } catch (err) {
+        console.error("Error initializing barcode scanner:", err);
+      }
+  }, [handleScanSuccess, scanState]);
+
+  useEffect(() => {
+    if (scanState === 'scanning' && !scannerRef.current?.isScanning) {
+      startScanner();
+    }
+  }, [scanState, startScanner]);
+
   const handleCaptureLabel = useCallback(async () => {
     if (scanState !== 'scanning' || !videoRef.current || !canvasRef.current) {
       return;
@@ -266,8 +269,6 @@ export default function ScanPage() {
     canvas.height = video.videoHeight;
     const context = canvas.getContext('2d');
     if (context) {
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
         try {
             const dataUri = await compressImage(canvas.toDataURL('image/jpeg'), 800, 0.8);
             abortControllerRef.current = new AbortController();
@@ -289,8 +290,8 @@ export default function ScanPage() {
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
     setScanResult(null);
-    stopScanner().then(startScanner);
-  }, [startScanner, stopScanner]);
+    stopScanner().then(startCamera);
+  }, [startCamera, stopScanner]);
 
   const toggleFlashlight = useCallback(() => {
     if (trackRef.current && isFlashlightAvailable) {
@@ -331,7 +332,7 @@ export default function ScanPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button size="lg" onClick={startScanner}>
+                <Button size="lg" onClick={startCamera}>
                    Start Camera
                 </Button>
               </CardContent>
@@ -354,13 +355,15 @@ export default function ScanPage() {
         return null; 
       case 'permission_denied':
         return (
-          <Alert variant="destructive" className="z-10 m-4">
-            <ScanLine className="w-4 h-4" />
-            <AlertTitle>Camera Access Denied</AlertTitle>
-            <AlertDescription>
-              To scan products, please grant camera access in your browser settings and refresh the page.
-            </AlertDescription>
-          </Alert>
+          <div className="absolute inset-0 z-10 flex items-center justify-center p-4 bg-background">
+            <Alert variant="destructive" className="max-w-md">
+              <ScanLine className="w-4 h-4" />
+              <AlertTitle>Camera Access Denied</AlertTitle>
+              <AlertDescription>
+                To scan products, please grant camera access in your browser settings and refresh the page.
+              </AlertDescription>
+            </Alert>
+          </div>
         );
       case 'error':
         return (
@@ -368,7 +371,7 @@ export default function ScanPage() {
               <AlertTitle>An Error Occurred</AlertTitle>
               <AlertDescription>
                 Something went wrong. Please try again.
-                <Button onClick={() => stopScanner().then(startScanner)} className="mt-4 w-full">Try Again</Button>
+                <Button onClick={() => stopScanner().then(startCamera)} className="mt-4 w-full">Try Again</Button>
               </AlertDescription>
           </Alert>
         );
@@ -512,5 +515,3 @@ export default function ScanPage() {
     </div>
   );
 }
-
-    

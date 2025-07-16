@@ -28,7 +28,7 @@ import {
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 type ScanMode = 'label' | 'barcode';
-type ScanState = 'idle' | 'initializing' | 'scanning' | 'analyzing' | 'error' | 'permission_denied';
+type ScanState = 'idle' | 'scanning' | 'analyzing' | 'error' | 'permission_denied';
 
 function SummaryPopupContent({
   scanResult,
@@ -154,16 +154,23 @@ export default function ScanPage() {
         if (!isMounted || scanState !== 'scanning') return;
 
         await stopScanner();
-        setScanState('initializing');
 
         try {
             if (scanMode === 'label') {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                if (videoRef.current) {
+                if (isMounted && videoRef.current) {
                     videoRef.current.srcObject = stream;
                     localStream = stream;
+                } else {
+                    stream.getTracks().forEach(track => track.stop());
                 }
             } else if (scanMode === 'barcode') {
+                if (!document.getElementById(SCANNER_REGION_ID)) {
+                    console.error("Scanner region not found in DOM");
+                    if (isMounted) setScanState('error');
+                    return;
+                }
+                
                 localScanner = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
                 scannerRef.current = localScanner;
                 
@@ -184,25 +191,24 @@ export default function ScanPage() {
                                     title: 'Product Not Found',
                                     description: "Couldn't find this barcode. Try scanning the label.",
                                 });
-                                setScanState('scanning');
+                                if (isMounted) setScanState('scanning');
                             }
                         } catch (err) {
                             console.error("Barcode analysis failed:", err);
                             toast({ variant: 'destructive', title: 'Analysis Error', description: 'Something went wrong.' });
-                            setScanState('error');
+                            if (isMounted) setScanState('error');
                         }
                     },
                     () => {}
                 );
             }
-            if (isMounted) setScanState('scanning');
         } catch (err) {
             console.error(`Error starting ${scanMode} scanner:`, err);
             if (isMounted) setScanState('permission_denied');
         }
     };
     
-    if (scanState === 'scanning' || scanState === 'initializing') {
+    if (scanState === 'scanning') {
         startScanner();
     }
 
@@ -219,8 +225,9 @@ export default function ScanPage() {
   }, []);
 
   const switchMode = (newMode: ScanMode) => {
+    if (scanMode === newMode) return;
     setScanMode(newMode);
-    if(scanState === 'scanning' || scanState === 'initializing') {
+    if(scanState === 'scanning') {
         // The useEffect will handle the restart
     } else {
         setScanState('idle');
@@ -252,13 +259,6 @@ export default function ScanPage() {
               </CardContent>
             </Card>
           </div>
-        );
-      case 'initializing':
-        return (
-            <div className="z-10 flex flex-col items-center justify-center p-4 text-center">
-                <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
-                <h2 className="text-2xl font-bold">Starting Camera...</h2>
-            </div>
         );
       case 'permission_denied':
         return (
@@ -292,7 +292,14 @@ export default function ScanPage() {
         );
       case 'scanning':
         if (scanMode === 'label') {
-          return <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />;
+          return (
+            <>
+                <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20" style={{'pointerEvents': 'none'}}>
+                    <Loader2 className="w-16 h-16 animate-spin text-white/50" />
+                </div>
+            </>
+          );
         }
         if (scanMode === 'barcode') {
           return (
@@ -332,6 +339,7 @@ export default function ScanPage() {
               onClick={handleOcrScan}
               size="lg"
               className="w-48 h-16 rounded-full text-lg shadow-2xl"
+              disabled={!videoRef.current?.srcObject}
             >
                 <ScanLine className="w-6 h-6 mr-2" />
                 Capture Label

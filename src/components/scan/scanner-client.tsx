@@ -64,7 +64,7 @@ function SummaryPopupContent({
   }
 
   const product: Product = {
-    barcode: scanResult.method === 'barcode' && productName ? productName : 'ocr-product',
+    barcode: scanResult.method === 'barcode' && scanResult.analysis.productName ? scanResult.analysis.productName : 'ocr-product',
     name: productName || 'Analyzed Product',
     brand: productBrand || 'From your camera',
     imageUrl: productImageUrl || 'https://placehold.co/400x400.png',
@@ -229,12 +229,6 @@ export default function ScannerClient() {
     }
 
     const config = { facingMode: 'environment' };
-    const barcodeQrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
-        const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-        let qrboxSize = Math.floor(minEdge * 0.7);
-        if (qrboxSize > 300) qrboxSize = 300;
-        return { width: qrboxSize, height: qrboxSize / 2 }; // Rectangular for barcodes
-    };
 
     const cameraStartedCallback = () => {
         const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
@@ -247,13 +241,18 @@ export default function ScannerClient() {
             if (capabilities.torch) setIsFlashlightAvailable(true);
             if (capabilities.zoom) setZoomCapabilities(capabilities.zoom);
 
-            // Correctly transition to scanning state after camera starts
             setScanState('scanning');
         }
     }
 
     if (scanMode === 'barcode') {
-      const onScanSuccess = async (decodedText: string) => {
+        const barcodeQrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            let qrboxSize = Math.floor(minEdge * 0.7);
+            if (qrboxSize > 300) qrboxSize = 300;
+            return { width: qrboxSize, height: qrboxSize / 2 }; // Rectangular for barcodes
+        };
+        const onScanSuccess = async (decodedText: string) => {
           if (scanStateRef.current === 'scanning') {
             setIsClear(true);
             setScanState('analyzing');
@@ -281,8 +280,8 @@ export default function ScannerClient() {
     } else if (scanMode === 'label') {
         scannerRef.current.start(
           config,
-          { fps: 10, disableFlip: true }, // No qrbox needed for full-view OCR
-          () => {}, // We don't care about barcode success in label mode
+          { fps: 10, disableFlip: true },
+          () => {}, // No barcode callback needed for label mode
           () => {}
         ).then(() => {
             cameraStartedCallback();

@@ -80,17 +80,24 @@ export default function ScanPage() {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const isStoppingRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null); 
 
   const { toast } = useToast();
 
   const stopScanner = useCallback(async () => {
+    if (isStoppingRef.current) {
+        return;
+    }
+    isStoppingRef.current = true;
     try {
         if (scannerRef.current && scannerRef.current.getState() === Html5QrcodeScannerState.SCANNING) {
             await scannerRef.current.stop();
         }
     } catch (err) {
         console.error("Failed to stop scanner gracefully:", err);
+    } finally {
+        isStoppingRef.current = false;
     }
   }, []);
 
@@ -166,7 +173,6 @@ export default function ScanPage() {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         stream.getTracks().forEach(track => track.stop());
         setHasCameraPermission(true);
-        setScanState('scanning');
       } catch (error) {
         console.error("Camera permission denied:", error);
         setHasCameraPermission(false);
@@ -177,46 +183,47 @@ export default function ScanPage() {
     if (hasCameraPermission === null) {
         checkPermissionAndStart();
     }
-
-    return () => {
-      stopScanner();
-    }
-  }, [hasCameraPermission, stopScanner]);
+  }, [hasCameraPermission]);
 
   // Effect for managing the scanner lifecycle based on scanState
   useEffect(() => {
-    if (scanState !== 'scanning' || !hasCameraPermission) {
-      return;
+    if (scanState === 'scanning' && hasCameraPermission) {
+        if (!scannerRef.current) {
+          scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+        }
+        const scanner = scannerRef.current;
+        
+        if (scanner.getState() === Html5QrcodeScannerState.NOT_STARTED || scanner.getState() === Html5QrcodeScannerState.STOPPED) {
+          scanner.start(
+            { facingMode: 'environment' },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            handleBarcodeScanSuccess,
+            () => { /* ignore non-scans */ }
+          ).catch(err => {
+            console.error("Error starting barcode scanner:", err);
+            setScanState('permission_denied');
+            toast({
+              variant: 'destructive',
+              title: 'Camera Error',
+              description: 'Could not start the camera. Please check permissions and try again.',
+            });
+          });
+        }
     }
     
-    if (!scannerRef.current) {
-      scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-    }
-    const scanner = scannerRef.current;
-    
-    if (scanner.getState() === Html5QrcodeScannerState.NOT_STARTED || scanner.getState() === Html5QrcodeScannerState.STOPPED) {
-      scanner.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        handleBarcodeScanSuccess,
-        () => { /* ignore non-scans */ }
-      ).catch(err => {
-        console.error("Error starting barcode scanner:", err);
-        setScanState('permission_denied');
-        toast({
-          variant: 'destructive',
-          title: 'Camera Error',
-          description: 'Could not start the camera. Please check permissions and try again.',
-        });
-      });
-    }
-
+    // Cleanup on unmount or when state changes away from scanning
     return () => {
-      if (scannerRef.current && scannerRef.current.isScanning) {
-        stopScanner();
-      }
+        if (scannerRef.current && scannerRef.current.isScanning) {
+            stopScanner();
+        }
     };
   }, [scanState, hasCameraPermission, handleBarcodeScanSuccess, stopScanner, toast]);
+  
+  useEffect(() => {
+      if (hasCameraPermission && scanState === 'initializing') {
+          setScanState('scanning');
+      }
+  }, [hasCameraPermission, scanState]);
 
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);

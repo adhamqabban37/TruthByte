@@ -12,8 +12,7 @@ import {
   analyzeProductLabel,
   AnalyzeProductLabelOutput,
 } from '@/ai/flows/analyze-product-label';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Camera, CameraOff, Loader2 } from 'lucide-react';
+import { Camera, CameraOff, Loader2, Aperture } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 
@@ -76,7 +75,6 @@ export default function ScanPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const { toast } = useToast();
 
@@ -87,10 +85,6 @@ export default function ScanPage() {
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
-    }
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
     }
   }, []);
 
@@ -106,48 +100,6 @@ export default function ScanPage() {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
       }
-
-      scanIntervalRef.current = setInterval(async () => {
-        if (
-          videoRef.current &&
-          canvasRef.current &&
-          videoRef.current.readyState === 4 // HAVE_ENOUGH_DATA
-        ) {
-          const video = videoRef.current;
-          const canvas = canvasRef.current;
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          const context = canvas.getContext('2d');
-          if (context) {
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const dataUri = canvas.toDataURL('image/jpeg');
-            
-            // Set analyzing state but don't stop the interval yet
-            setScanState('analyzing');
-
-            try {
-              const result = await analyzeProductLabel({ photoDataUri: dataUri });
-              if (result.method !== 'none' && result.analysis) {
-                 stopCamera();
-                 setScanResult(result);
-                 setShowPopup(true);
-                 setScanState('idle');
-              } else {
-                 // No result, go back to scanning
-                 setScanState('scanning');
-              }
-            } catch (err) {
-              console.error("Analysis failed:", err);
-              toast({
-                  variant: 'destructive',
-                  title: 'Analysis Error',
-                  description: 'Something went wrong. Please try again.'
-              });
-              setScanState('error');
-            }
-          }
-        }
-      }, 3000); // Scan every 3 seconds
     } catch (error) {
       console.error('Error accessing camera:', error);
       setScanState('permission_denied');
@@ -158,6 +110,51 @@ export default function ScanPage() {
       });
     }
   }, [stopCamera, toast]);
+
+  const handleCapture = async () => {
+    if (
+      videoRef.current &&
+      canvasRef.current &&
+      videoRef.current.readyState === 4 // HAVE_ENOUGH_DATA
+    ) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext('2d');
+      if (context) {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUri = canvas.toDataURL('image/jpeg');
+
+        setScanState('analyzing');
+        stopCamera();
+
+        try {
+          const result = await analyzeProductLabel({ photoDataUri: dataUri });
+          if (result.method !== 'none' && result.analysis) {
+             setScanResult(result);
+             setShowPopup(true);
+             setScanState('idle');
+          } else {
+             toast({
+                variant: 'destructive',
+                title: 'Analysis Failed',
+                description: 'Could not detect a product. Please try again with a clearer image.',
+             });
+             setScanState('idle');
+          }
+        } catch (err) {
+          console.error("Analysis failed:", err);
+          toast({
+              variant: 'destructive',
+              title: 'Analysis Error',
+              description: 'Something went wrong. Please try again.'
+          });
+          setScanState('error');
+        }
+      }
+    }
+  };
   
   // Cleanup on component unmount
   useEffect(() => {
@@ -189,7 +186,7 @@ export default function ScanPage() {
                     <Loader2 className="w-16 h-16 mb-4 text-destructive"/>
                     <h2 className="text-2xl font-bold">An Error Occurred</h2>
                     <p className="mt-2 text-white/80">Something went wrong during analysis. Please try again.</p>
-                     <Button onClick={startCamera} className="mt-4">Try Again</Button>
+                     <Button onClick={() => setScanState('idle')} className="mt-4">Try Again</Button>
                 </div>
             );
         case 'idle':
@@ -200,26 +197,27 @@ export default function ScanPage() {
                         <h2 className="text-2xl font-bold">Ready to Scan</h2>
                         <p className="mt-2 max-w-xs text-center text-muted-foreground">Point your camera at a product label to begin.</p>
                         <Button onClick={startCamera} size="lg" className="mt-6 h-14">
-                            Start Scanning
+                            Start Camera
                         </Button>
                     </div>
                 </div>
             );
         case 'scanning':
-        case 'analyzing':
             return (
                 <>
                     <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
                     <div className="absolute inset-0 z-10 bg-black/30 flex items-center justify-center">
                         <div className="w-3/4 h-1/2 border-4 border-dashed border-white/50 rounded-2xl" />
                     </div>
-                    {scanState === 'analyzing' && (
-                        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 bg-background/80 backdrop-blur-sm text-foreground py-2 px-4 rounded-full flex items-center gap-2">
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            <span>Analyzing...</span>
-                        </div>
-                    )}
                 </>
+            );
+        case 'analyzing':
+            return (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center bg-black/70 text-white">
+                    <Loader2 className="w-16 h-16 mb-4 animate-spin text-primary"/>
+                    <h2 className="text-2xl font-bold">Analyzing...</h2>
+                    <p className="mt-2 text-white/80">The AI is inspecting your product.</p>
+                </div>
             );
         default:
             return null;
@@ -232,10 +230,23 @@ export default function ScanPage() {
         {renderContent()}
         <canvas ref={canvasRef} className="hidden"></canvas>
       </div>
+      
+      {scanState === 'scanning' && (
+        <div className="absolute bottom-10 z-20 flex flex-col items-center gap-4">
+            <p className="text-lg text-center text-foreground">Position the label within the frame and capture</p>
+            <Button onClick={handleCapture} size="lg" className="w-48 h-16 rounded-full text-lg shadow-2xl">
+                <Aperture className="w-6 h-6 mr-2" />
+                Capture
+            </Button>
+        </div>
+      )}
 
-      <div className="absolute z-20 text-center text-foreground bottom-24 px-4">
-        <p className="text-lg">Point your camera at a product's ingredients or barcode</p>
-      </div>
+      {scanState === 'idle' && (
+         <div className="absolute z-20 text-center text-foreground bottom-24 px-4">
+            <p className="text-lg">Scan product labels with your camera</p>
+        </div>
+      )}
+
 
       <Sheet
         open={showPopup}

@@ -1,6 +1,5 @@
 'use client';
-import { useState, Suspense, useCallback } from 'react';
-import { ScannerUI } from '@/components/scan/scanner-ui';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -8,96 +7,57 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { AnalysisSummary } from '@/components/scan/analysis-summary';
-import { getProductFromApi } from '@/lib/data-service';
 import type { Product } from '@/lib/types';
-import type { GenerateTruthSummaryOutput } from '@/ai/flows/generate-truth-summary';
-import { generateTruthSummary } from '@/ai/flows/generate-truth-summary';
+import {
+  analyzeProductLabel,
+  AnalyzeProductLabelOutput,
+} from '@/ai/flows/analyze-product-label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CameraOff } from 'lucide-react';
+import { Camera, CameraOff, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
+
+type ScanState = 'idle' | 'scanning' | 'analyzing' | 'error' | 'permission_denied';
 
 function SummaryPopupContent({
-  barcode,
+  scanResult,
   onClose,
 }: {
-  barcode: string;
+  scanResult: AnalyzeProductLabelOutput;
   onClose: () => void;
 }) {
-  const [product, setProduct] = useState<Product | null>(null);
-  const [analysis, setAnalysis] = useState<GenerateTruthSummaryOutput | null>(
-    null
-  );
-  const [error, setError] = useState<string | null>(null);
+  const {
+    productName,
+    productBrand,
+    productImageUrl,
+    analysis,
+  } = scanResult;
 
-  useState(() => {
-    async function fetchData() {
-      try {
-        const fetchedProduct = await getProductFromApi(barcode);
-        
-        if (!fetchedProduct) {
-          setError(`Product with barcode ${barcode} not found.`);
-          return;
-        }
-        
-        setProduct(fetchedProduct);
-
-        if (fetchedProduct?.ingredients) {
-          const fetchedAnalysis = await generateTruthSummary({
-            ingredients: fetchedProduct.ingredients,
-          });
-
-          if (fetchedProduct.nutriscore) {
-            const scoreMap: { [key: string]: number } = {
-              a: 9, b: 7, c: 5, d: 3, e: 1,
-            };
-            fetchedAnalysis.healthScore =
-              scoreMap[fetchedProduct.nutriscore.toLowerCase()] ||
-              fetchedAnalysis.healthScore;
-          }
-          setAnalysis(fetchedAnalysis);
-        } else {
-           setError(`No ingredient information found for ${fetchedProduct.name}.`);
-        }
-      } catch (e) {
-         setError('An error occurred while fetching product data.');
-         console.error(e);
-      }
-    }
-    fetchData();
-  });
-
-  if (error) {
+  if (!analysis) {
     return (
-        <div className="flex items-center justify-center h-full p-6 text-center text-white bg-transparent">
-            <div className="space-y-4">
-                <h2 className="text-2xl font-bold text-destructive">Scan Failed</h2>
-                <p className="text-white/80">{error}</p>
-                 <button onClick={onClose} className="px-4 py-2 mt-4 text-white rounded-md bg-primary">
-                    Try Again
-                </button>
-            </div>
-        </div>
-    );
-  }
-
-  if (!product || !analysis) {
-    return (
-      <div className="p-6 space-y-4 bg-background h-screen">
-        <div className="flex justify-center pt-8">
-            <Skeleton className="w-40 h-40 rounded-lg" />
-        </div>
-        <div className="pt-4 space-y-2">
-            <Skeleton className="w-3/4 h-8 mx-auto" />
-            <Skeleton className="w-1/2 h-6 mx-auto" />
-        </div>
-        <div className="space-y-3 pt-6">
-            <Skeleton className="w-full h-20" />
-            <Skeleton className="w-full h-12" />
-            <Skeleton className="w-full h-24" />
+      <div className="flex items-center justify-center h-full p-6 text-center text-white bg-transparent">
+        <div className="space-y-4">
+          <h2 className="text-2xl font-bold text-destructive">Analysis Failed</h2>
+          <p className="text-white/80">
+            Could not get enough information from the label. Please try again with a clearer picture.
+          </p>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 mt-4 text-white rounded-md bg-primary"
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );
   }
+
+  const product: Product = {
+    barcode: scanResult.method === 'barcode' ? (productName || 'barcode-product') : 'ocr-product',
+    name: productName || 'Analyzed Product',
+    brand: productBrand || 'From your camera',
+    imageUrl: productImageUrl || 'https://placehold.co/400x400.png',
+  };
 
   return (
     <AnalysisSummary
@@ -109,82 +69,193 @@ function SummaryPopupContent({
 }
 
 export default function ScanPage() {
-  const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const [showScanner, setShowScanner] = useState(true);
+  const [scanState, setScanState] = useState<ScanState>('idle');
+  const [scanResult, setScanResult] = useState<AnalyzeProductLabelOutput | null>(null);
+  const [showPopup, setShowPopup] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const { toast } = useToast();
 
-   const handleCameraPermission = useCallback((permission: boolean) => {
-    if (hasCameraPermission === permission) return; // Avoid redundant state updates
-    
-    setHasCameraPermission(permission);
-    if (!permission) {
-         toast({
-          variant: 'destructive',
-          title: 'Camera Access Denied',
-          description: 'Please enable camera permissions in your browser settings to use this app.',
-        });
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
-  }, [toast, hasCameraPermission]);
-
-  const handleScanComplete = useCallback((barcode: string) => {
-    setShowScanner(false);
-    setScannedBarcode(barcode);
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
   }, []);
+
+  const startCamera = useCallback(async () => {
+    stopCamera(); // Ensure any existing streams are stopped
+    setScanState('scanning');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+
+      scanIntervalRef.current = setInterval(async () => {
+        if (
+          videoRef.current &&
+          canvasRef.current &&
+          videoRef.current.readyState === 4 // HAVE_ENOUGH_DATA
+        ) {
+          const video = videoRef.current;
+          const canvas = canvasRef.current;
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const context = canvas.getContext('2d');
+          if (context) {
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUri = canvas.toDataURL('image/jpeg');
+            
+            // Set analyzing state but don't stop the interval yet
+            setScanState('analyzing');
+
+            try {
+              const result = await analyzeProductLabel({ photoDataUri: dataUri });
+              if (result.method !== 'none' && result.analysis) {
+                 stopCamera();
+                 setScanResult(result);
+                 setShowPopup(true);
+                 setScanState('idle');
+              } else {
+                 // No result, go back to scanning
+                 setScanState('scanning');
+              }
+            } catch (err) {
+              console.error("Analysis failed:", err);
+              toast({
+                  variant: 'destructive',
+                  title: 'Analysis Error',
+                  description: 'Something went wrong. Please try again.'
+              });
+              setScanState('error');
+            }
+          }
+        }
+      }, 3000); // Scan every 3 seconds
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      setScanState('permission_denied');
+      toast({
+        variant: 'destructive',
+        title: 'Camera Access Denied',
+        description: 'Please enable camera permissions in your browser settings to use this app.',
+      });
+    }
+  }, [stopCamera, toast]);
+  
+  // Cleanup on component unmount
+  useEffect(() => {
+      return () => {
+          stopCamera();
+      }
+  }, [stopCamera]);
+
 
   const handleClosePopup = useCallback(() => {
-    setScannedBarcode(null);
-    // Delay re-enabling the scanner to allow the sheet to close
-    setTimeout(() => setShowScanner(true), 300);
+    setShowPopup(false);
+    setScanResult(null);
+    setScanState('idle'); // Go back to the initial state
   }, []);
 
+  const renderContent = () => {
+    switch(scanState) {
+        case 'permission_denied':
+            return (
+                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center bg-black/70 text-white">
+                    <CameraOff className="w-16 h-16 mb-4 text-destructive"/>
+                    <h2 className="text-2xl font-bold">Camera Access Denied</h2>
+                    <p className="mt-2 text-white/80">To scan products, please grant camera access in your browser settings and refresh the page.</p>
+                </div>
+            );
+        case 'error':
+             return (
+                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center bg-black/70 text-white">
+                    <Loader2 className="w-16 h-16 mb-4 text-destructive"/>
+                    <h2 className="text-2xl font-bold">An Error Occurred</h2>
+                    <p className="mt-2 text-white/80">Something went wrong during analysis. Please try again.</p>
+                     <Button onClick={startCamera} className="mt-4">Try Again</Button>
+                </div>
+            );
+        case 'idle':
+            return (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center bg-black/50">
+                    <div className="flex flex-col items-center justify-center p-10 bg-background/80 rounded-2xl backdrop-blur-sm">
+                        <Camera className="w-16 h-16 mb-4 text-primary"/>
+                        <h2 className="text-2xl font-bold">Ready to Scan</h2>
+                        <p className="mt-2 max-w-xs text-center text-muted-foreground">Point your camera at a product label to begin.</p>
+                        <Button onClick={startCamera} size="lg" className="mt-6 h-14">
+                            Start Scanning
+                        </Button>
+                    </div>
+                </div>
+            );
+        case 'scanning':
+        case 'analyzing':
+            return (
+                <>
+                    <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
+                    <div className="absolute inset-0 z-10 bg-black/30 flex items-center justify-center">
+                        <div className="w-3/4 h-1/2 border-4 border-dashed border-white/50 rounded-2xl" />
+                    </div>
+                    {scanState === 'analyzing' && (
+                        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 bg-background/80 backdrop-blur-sm text-foreground py-2 px-4 rounded-full flex items-center gap-2">
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span>Analyzing...</span>
+                        </div>
+                    )}
+                </>
+            );
+        default:
+            return null;
+    }
+  }
+
   return (
-    <div className="relative flex flex-col items-center justify-center w-full h-full min-h-screen p-4 bg-background">
-      <div className="relative w-full max-w-md mx-auto overflow-hidden aspect-square rounded-2xl">
-        {showScanner && (
-            <ScannerUI 
-                onScanComplete={handleScanComplete} 
-                onCameraPermission={handleCameraPermission} 
-            />
-        )}
-        {hasCameraPermission === false && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center bg-black/70 text-white">
-                <CameraOff className="w-16 h-16 mb-4 text-destructive"/>
-                <h2 className="text-2xl font-bold">Camera Access Denied</h2>
-                <p className="mt-2 text-white/80">To scan barcodes, please grant camera access in your browser settings.</p>
-            </div>
-        )}
-         {hasCameraPermission !== false && !showScanner && (
-             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-4 text-center bg-background">
-                <p className="text-lg text-muted-foreground">Processing...</p>
-             </div>
-        )}
+    <div className="relative flex flex-col items-center justify-center w-full h-full min-h-screen bg-background">
+      <div className="relative w-full max-w-md mx-auto overflow-hidden aspect-square rounded-2xl bg-muted">
+        {renderContent()}
+        <canvas ref={canvasRef} className="hidden"></canvas>
       </div>
 
-      <div className="absolute z-20 text-center text-foreground bottom-24">
-        <p className="mb-4 text-lg">Place a barcode inside the frame</p>
+      <div className="absolute z-20 text-center text-foreground bottom-24 px-4">
+        <p className="text-lg">Point your camera at a product's ingredients or barcode</p>
       </div>
 
       <Sheet
-        open={!!scannedBarcode}
+        open={showPopup}
         onOpenChange={(open) => !open && handleClosePopup()}
       >
         <SheetContent
           side="bottom"
           className="h-screen max-h-[90vh] p-0 bg-black/80 backdrop-blur-sm border-none rounded-t-2xl"
+          onInteractOutside={(e) => e.preventDefault()} // Prevent closing on outside click
         >
           <SheetHeader>
             <SheetTitle className="sr-only">
               Product Analysis Summary
             </SheetTitle>
           </SheetHeader>
-          {scannedBarcode && (
-            <Suspense fallback={<Skeleton className="w-full h-screen" />}>
+          {scanResult && (
               <SummaryPopupContent
-                barcode={scannedBarcode}
+                scanResult={scanResult}
                 onClose={handleClosePopup}
               />
-            </Suspense>
           )}
         </SheetContent>
       </Sheet>

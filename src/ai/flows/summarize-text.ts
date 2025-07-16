@@ -1,0 +1,100 @@
+
+'use server';
+
+/**
+ * @fileOverview An AI agent that analyzes product information from raw OCR text.
+ * - summarizeText - The main function to analyze product text.
+ * - SummarizeTextInput - Input type for the function.
+ * - SummarizeTextOutput - Return type for the function.
+ */
+
+import { ai } from '@/ai/genkit';
+import { z } from 'zod';
+import { GenerateTruthSummaryOutputSchema } from './shared';
+
+export const SummarizeTextInputSchema = z.object({
+  labelText: z.string().describe("The raw text extracted from a product label using OCR."),
+});
+export type SummarizeTextInput = z.infer<typeof SummarizeTextInputSchema>;
+
+export const SummarizeTextOutputSchema = z.object({
+  productName: z.string().optional().describe('The name of the product, if found.'),
+  productBrand: z.string().optional().describe('The brand of the product, if found.'),
+  analysis: GenerateTruthSummaryOutputSchema.optional(),
+});
+export type SummarizeTextOutput = z.infer<typeof SummarizeTextOutputSchema>;
+
+export async function summarizeText(
+  input: SummarizeTextInput
+): Promise<SummarizeTextOutput> {
+  return summarizeTextFlow(input);
+}
+
+const prompt = ai.definePrompt({
+  name: 'summarizeTextPrompt',
+  input: { schema: SummarizeTextInputSchema },
+  output: { schema: GenerateTruthSummaryOutputSchema },
+  prompt: `You are an AI nutrition and ingredient analysis engine. Your job is to provide a fast, reliable summary of any product by analyzing its label text extracted via OCR. Follow these steps precisely:
+
+Step 1: Identify Product
+From the raw text, identify the product name and brand.
+
+Step 2: Ingredient Evaluation
+Flag any of the following as low-quality or red-flag:
+- Added sugars (high fructose corn syrup, cane sugar, etc.)
+- Artificial sweeteners (aspartame, sucralose)
+- Artificial flavors/colors
+- Processed oils (palm oil, canola oil, etc.)
+- Excess sodium, saturated fats
+
+Step 3: Health Rating Scale (1 to 10):
+Use a scalable and transparent rating system.
+- 1 = ultra-processed, low-nutrition
+- 10 = clean, organic, nutritionally dense
+Provide clear reasoning for the score.
+
+Step 4: Generate Smart Summary
+Create a clear, human-readable summary that answers the question: "Why is this product good or bad for you?"
+
+If good:
+Mention benefits (e.g., “High in fiber”, “Low in sugar”, “Organic”, “Rich in protein”)
+If bad:
+Mention risks (e.g., “High in added sugars”, “Contains palm oil”, “Ultra-processed”, “Artificial additives present”)
+
+Here is the raw OCR text from the product label:
+"{{labelText}}"
+
+Output format: JSON according to the schema.
+`,
+});
+
+
+const summarizeTextFlow = ai.defineFlow(
+  {
+    name: 'summarizeTextFlow',
+    inputSchema: SummarizeTextInputSchema,
+    outputSchema: SummarizeTextOutputSchema,
+  },
+  async (input) => {
+    try {
+      const { output } = await prompt(input);
+      
+      if (!output || !output.summary) {
+        return { methodName: 'none' };
+      }
+
+      // The prompt now handles the product name and brand, but we can ensure it's set
+      output.source = 'Label Only (OCR)';
+      
+      return {
+        productName: output.productName,
+        productBrand: output.productBrand,
+        analysis: output,
+      };
+
+    } catch (error) {
+      console.error('Error in summarizeTextFlow:', error);
+      return { methodName: 'none' };
+    }
+  }
+);

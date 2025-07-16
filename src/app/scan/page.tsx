@@ -9,10 +9,6 @@ import {
 } from '@/components/ui/sheet';
 import { AnalysisSummary } from '@/components/scan/analysis-summary';
 import type { Product } from '@/lib/types';
-import {
-  analyzeProductLabel,
-  AnalyzeProductLabelOutput,
-} from '@/ai/flows/analyze-product-label';
 import { analyzeBarcode } from '@/ai/flows/analyze-barcode';
 import { Camera, Loader2, ScanLine, X, Zap, ZapOff, ZoomIn, ZoomOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -29,6 +25,11 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { Slider } from '@/components/ui/slider';
 import styles from '@/components/scan/scanner.module.css';
+import Tesseract from 'tesseract.js';
+import { summarizeText, SummarizeTextOutput } from '@/ai/flows/summarize-text';
+
+
+type AnalyzeOutput = (SummarizeTextOutput & {productImageUrl?: string, method: 'ocr' | 'barcode' | 'none', error?: string});
 
 type ScanState = 'idle' | 'starting' | 'scanning' | 'analyzing' | 'error' | 'permission_denied' | 'success';
 
@@ -36,7 +37,7 @@ function SummaryPopupContent({
   scanResult,
   onClose,
 }: {
-  scanResult: AnalyzeProductLabelOutput;
+  scanResult: AnalyzeOutput;
   onClose: () => void;
 }) {
   const {
@@ -87,7 +88,7 @@ const SCANNER_REGION_ID = 'scanner-region';
 
 export default function ScanPage() {
   const [scanState, setScanState] = useState<ScanState>('idle');
-  const [scanResult, setScanResult] = useState<AnalyzeProductLabelOutput | null>(null);
+  const [scanResult, setScanResult] = useState<AnalyzeOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   
@@ -106,33 +107,6 @@ export default function ScanPage() {
 
 
   const { toast } = useToast();
-
-  const compressImage = useCallback((dataUri: string, maxWidth: number, quality: number): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.src = dataUri;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let { width, height } = img;
-        if (width > maxWidth) {
-          height = (maxWidth / width) * height;
-          width = maxWidth;
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-            return reject(new Error("Could not get canvas context"));
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.onerror = (error) => {
-        console.error("Image loading error for compression", error);
-        reject(error);
-      };
-    });
-  }, []);
 
   const stopScanner = useCallback(async (isSuccessCleanup = false) => {
      try {
@@ -180,7 +154,12 @@ export default function ScanPage() {
     }
   }, [isFlashlightOn, isFlashlightAvailable]);
 
-  const handleScanSuccess = useCallback((result: AnalyzeProductLabelOutput) => {
+  const scanStateRef = useRef(scanState);
+  useEffect(() => {
+    scanStateRef.current = scanState;
+  }, [scanState]);
+
+  const handleScanSuccess = useCallback((result: AnalyzeOutput) => {
     if (result.method === 'none' || scanStateRef.current !== 'scanning') {
         return;
     }
@@ -196,7 +175,7 @@ export default function ScanPage() {
     
   }, [stopScanner]);
   
-  const startCameraAndScanner = useCallback(async () => {
+  const startCamera = useCallback(async () => {
     if (scanStateRef.current !== 'idle') return;
     setScanState('starting');
 
@@ -208,7 +187,6 @@ export default function ScanPage() {
             width: { ideal: 1280 },
             height: { ideal: 720 },
             focusMode: 'continuous',
-            frameRate: { ideal: 30 }
         } 
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -226,11 +204,18 @@ export default function ScanPage() {
       if (capabilities.torch) setIsFlashlightAvailable(true);
       if (capabilities.zoom) setZoomCapabilities(capabilities.zoom);
       
+      setScanState('scanning');
+    } catch (err) {
+      console.error("Error starting camera:", err);
+      toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start camera. Please grant permissions and try again.' });
+      setScanState('permission_denied');
+    }
+  }, [toast]);
+  
+  const startScanner = useCallback(() => {
       if (!scannerRef.current) {
           scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
       }
-
-      setScanState('scanning');
 
       scannerRef.current.start(
         { facingMode: 'environment' },
@@ -240,7 +225,7 @@ export default function ScanPage() {
             setScanState('analyzing');
             try {
               const result = await analyzeBarcode({ barcode: decodedText });
-              handleScanSuccess(result);
+              handleScanSuccess(result as AnalyzeOutput);
             } catch(e) {
                 console.error("Barcode analysis failed:", e);
                 setScanState('scanning');
@@ -254,13 +239,14 @@ export default function ScanPage() {
             setScanState('error');
           }
       });
-    } catch (err) {
-      console.error("Error starting camera:", err);
-      toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start camera. Please grant permissions and try again.' });
-      setScanState('permission_denied');
-    }
-  }, [toast, handleScanSuccess]);
+  }, [handleScanSuccess]);
   
+  useEffect(() => {
+    if (scanState === 'scanning') {
+      startScanner();
+    }
+  }, [scanState, startScanner]);
+
   const handleCaptureLabel = useCallback(async () => {
     if (scanStateRef.current !== 'scanning' || !videoRef.current || !canvasRef.current) return;
     setScanState('analyzing');
@@ -269,24 +255,33 @@ export default function ScanPage() {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
-      // Capture a higher resolution snapshot
-      canvas.width = video.videoWidth * 1.5;
-      canvas.height = video.videoHeight * 1.5;
+      canvas.width = video.videoWidth * 2;
+      canvas.height = video.videoHeight * 2;
       
       const context = canvas.getContext('2d');
       if (!context) throw new Error("Could not get canvas context");
 
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUri = await compressImage(canvas.toDataURL('image/jpeg', 0.9), 800, 0.7);
-
-      abortControllerRef.current = new AbortController();
-      const result = await analyzeProductLabel({ photoDataUri: dataUri, signal: abortControllerRef.current.signal });
+      const dataUri = canvas.toDataURL('image/jpeg', 0.9);
       
-      if (result.method !== 'none') {
-        handleScanSuccess(result);
+      const { data: { text } } = await Tesseract.recognize(dataUri, 'eng');
+      
+      if (!text || text.trim().length < 10) {
+        toast({
+          title: 'No Text Found',
+          description: "Couldn't read any text from the label. Try getting closer or use the barcode.",
+        });
+        setScanState('scanning');
+        return;
+      }
+
+      const result = await summarizeText({ labelText: text });
+      
+      if (result.analysis) {
+        handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
       } else {
         toast({
-          title: 'No Product Found',
+          title: 'Analysis Failed',
           description: "Couldn't identify a product from the label. Try getting closer or use the barcode.",
         });
         setScanState('scanning');
@@ -298,19 +293,13 @@ export default function ScanPage() {
              setScanState('scanning');
         }
     }
-  }, [toast, compressImage, handleScanSuccess]);
-
-  const scanStateRef = useRef(scanState);
-  useEffect(() => {
-    scanStateRef.current = scanState;
-  }, [scanState]);
-
+  }, [toast, handleScanSuccess]);
 
   const handleClosePopup = useCallback(() => {
     setShowPopup(false);
     setScanResult(null);
-    stopScanner().then(startCameraAndScanner);
-  }, [startCameraAndScanner, stopScanner]);
+    stopScanner().then(startCamera);
+  }, [startCamera, stopScanner]);
 
   const toggleFlashlight = useCallback(() => {
     if (trackRef.current && isFlashlightAvailable) {
@@ -355,7 +344,7 @@ export default function ScanPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button size="lg" onClick={startCameraAndScanner}>
+                <Button size="lg" onClick={startCamera}>
                    Start Camera
                 </Button>
               </CardContent>
@@ -394,7 +383,7 @@ export default function ScanPage() {
               <AlertTitle>An Error Occurred</AlertTitle>
               <AlertDescription>
                 Something went wrong. Please try again.
-                <Button onClick={() => stopScanner().then(startCameraAndScanner)} className="mt-4 w-full">Try Again</Button>
+                <Button onClick={() => stopScanner().then(startCamera)} className="mt-4 w-full">Try Again</Button>
               </AlertDescription>
           </Alert>
         );
@@ -535,4 +524,3 @@ export default function ScanPage() {
     </div>
   );
 }
-

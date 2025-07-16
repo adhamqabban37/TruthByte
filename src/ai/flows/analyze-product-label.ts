@@ -77,12 +77,6 @@ const analyzeProductLabelFlow = ai.defineFlow(
     outputSchema: AnalyzeProductLabelOutputSchema,
   },
   async (input) => {
-    // Check if the request has been aborted
-    if (input.signal?.aborted) {
-      console.log("Label analysis aborted.");
-      return { method: 'none' };
-    }
-
     try {
       const { output, history } = await prompt(input);
       

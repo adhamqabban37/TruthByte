@@ -82,7 +82,7 @@ function SummaryPopupContent({
 const SCANNER_REGION_ID = 'scanner-region';
 
 export default function ScannerClient() {
-  const [scanState, setScanState] = useState<ScanState>('idle');
+  const [scanState, setScanState] = useState<ScanState>('starting');
   const [scanMode, setScanMode] = useState<ScanMode>('barcode');
   const [scanResult, setScanResult] = useState<AnalyzeOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
@@ -98,6 +98,7 @@ export default function ScannerClient() {
   const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const isStartingRef = useRef(false);
 
   const { toast } = useToast();
 
@@ -131,15 +132,14 @@ export default function ScannerClient() {
       ocrIntervalRef.current = null;
     }
 
-    // Stop the html5-qrcode scanner
     if (scannerRef.current) {
       try {
         if (scannerRef.current.getState() === Html5QrcodeScannerState.SCANNING) {
           await scannerRef.current.stop();
         }
-        await scannerRef.current.clear();
       } catch (e) {
-        console.warn("Could not stop or clear barcode scanner", e);
+        // This can fail if the scanner is already stopped, which is fine.
+        console.warn("Could not stop barcode scanner", e);
       }
     }
     
@@ -158,7 +158,6 @@ export default function ScannerClient() {
     videoElRef.current = null;
 
     // Reset all states
-    setScanState('idle');
     setIsFlashlightOn(false);
     setIsFlashlightAvailable(false);
     setZoomCapabilities(null);
@@ -171,7 +170,8 @@ export default function ScannerClient() {
     setShowPopup(false);
     setScanResult(null);
     stopScanner().then(() => {
-      setScanState('starting'); // Re-initialize the scanner in the current mode
+      setScanState('idle'); // Go to idle, then starting will trigger re-init
+      setTimeout(() => setScanState('starting'), 50);
     });
   }, [stopScanner]);
 
@@ -235,19 +235,30 @@ export default function ScannerClient() {
   
   useEffect(() => {
     // Main effect to manage the scanner lifecycle
-    let isMounted = true;
-    scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+    if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+    }
 
-    async function start() {
-      if (scanState !== 'starting' || !isMounted) return;
+    const startScanner = async () => {
+      if (isStartingRef.current || (scannerRef.current && scannerRef.current.isScanning)) {
+        return;
+      }
+      isStartingRef.current = true;
       
       try {
         const config = { facingMode: 'environment' };
         
-        const onCameraStarted = () => {
-          if (!isMounted) return;
-          const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
-          if (videoEl && videoEl.srcObject instanceof MediaStream) {
+        await scannerRef.current!.start(
+            config,
+            scanMode === 'barcode' 
+                ? { fps: 10, qrbox: { width: 300, height: 150 }, disableFlip: true }
+                : { fps: 5, disableFlip: true },
+            scanMode === 'barcode' ? onBarcodeSuccess : () => {},
+            () => {} // Ignore scan/error callback for label mode
+        );
+
+        const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
+        if (videoEl && videoEl.srcObject instanceof MediaStream) {
             videoTrackRef.current = videoEl.srcObject.getVideoTracks()[0];
             const capabilities = videoTrackRef.current.getCapabilities();
             if (capabilities.torch) setIsFlashlightAvailable(true);
@@ -259,57 +270,32 @@ export default function ScannerClient() {
                 if (ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
                 ocrIntervalRef.current = setInterval(handleCaptureLabel, 2500);
             }
-          }
         }
-
-        if (scanMode === 'barcode') {
-            await scannerRef.current!.start(
-                config,
-                { fps: 10, qrbox: { width: 300, height: 150 }, disableFlip: true },
-                onBarcodeSuccess,
-                () => {} // Ignore scan failure callback
-            );
-        } else { // Label mode
-            await scannerRef.current!.start(
-                config,
-                { fps: 5, disableFlip: true },
-                () => {},
-                () => {}
-            );
-        }
-        
-        onCameraStarted();
-
       } catch (err: any) {
-        if (!isMounted) return;
         console.error(`Error starting ${scanMode} scanner:`, err);
         toast({ variant: 'destructive', title: 'Camera Error', description: `Could not start camera. Please grant permissions and try again.` });
         setScanState(err.name === 'NotAllowedError' ? 'permission_denied' : 'error');
+      } finally {
+        isStartingRef.current = false;
       }
     }
     
     if (scanState === 'starting') {
-        start();
+        startScanner();
     }
     
     return () => {
-      isMounted = false;
-      stopScanner();
+        stopScanner();
     };
   }, [scanState, scanMode]);
-
-
-  // Effect to trigger the initial start
-  useEffect(() => {
-    setScanState('starting');
-  }, []);
 
 
   const handleModeChange = (newMode: ScanMode) => {
     if (newMode === scanMode) return;
     setScanMode(newMode);
     stopScanner().then(() => {
-      setScanState('starting');
+        setScanState('idle'); // Go to idle, then starting will trigger re-init
+        setTimeout(() => setScanState('starting'), 50);
     });
   }
 
@@ -514,5 +500,3 @@ export default function ScannerClient() {
     </div>
   );
 }
-
-    

@@ -99,7 +99,6 @@ export default function ScannerClient() {
   const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
-  const isStartingRef = useRef(false);
 
   const { toast } = useToast();
 
@@ -111,115 +110,19 @@ export default function ScannerClient() {
         title: 'Analysis Failed',
         description: result.error || 'Could not analyze the product. Please try again.',
       });
-      // Reset to allow another scan, preserving the current mode
-      const currentMode = scanMode;
-      stopScanner().then(() => {
-        setScanMode(currentMode);
-        setScanState('starting'); // Go back to starting to re-init camera
-      });
+      // Reset to allow another scan
+      setScanState('scanning'); 
+      setIsClear(false);
       return;
     }
     
     setScanResult(result);
     setScanState('success');
     setShowPopup(true);
-  }, [toast, scanMode]);
+  }, [toast]);
 
 
-  const stopScanner = useCallback(async () => {
-    // Clear any running OCR interval
-    if (ocrIntervalRef.current) {
-      clearInterval(ocrIntervalRef.current);
-      ocrIntervalRef.current = null;
-    }
-
-    if (scannerRef.current) {
-      try {
-        if (scannerRef.current.getState() === Html5QrcodeScannerState.SCANNING) {
-          await scannerRef.current.stop();
-        }
-      } catch (e) {
-        // This can fail if the scanner is already stopped, which is fine.
-        console.warn("Could not stop barcode scanner", e);
-      }
-    }
-    
-    // Stop the video track manually to ensure the camera light turns off
-    if (videoTrackRef.current) {
-        if (isFlashlightOn) {
-            try {
-               await videoTrackRef.current.applyConstraints({ advanced: [{ torch: false }] });
-            } catch (e) { console.warn("Could not turn off flashlight on stop", e) }
-        }
-        videoTrackRef.current.stop();
-        videoTrackRef.current = null;
-    }
-
-    // Clear the video element reference
-    videoElRef.current = null;
-
-    // Reset all states
-    setIsFlashlightOn(false);
-    setIsFlashlightAvailable(false);
-    setZoomCapabilities(null);
-    setShowZoomSlider(false);
-    setZoomLevel(1);
-    setIsClear(false);
-  }, [isFlashlightOn]);
-  
-  const resetScanner = useCallback(() => {
-    setShowPopup(false);
-    setScanResult(null);
-    stopScanner().then(() => {
-      setScanState('idle'); // Go to idle, then starting will trigger re-init
-      setTimeout(() => setScanState('starting'), 50);
-    });
-  }, [stopScanner]);
-
-
-  const handleCaptureLabel = useCallback(async () => {
-    if (scanState !== 'scanning' || !videoElRef.current || scanMode !== 'label') return;
-    
-    const videoEl = videoElRef.current;
-    
-    setScanState('analyzing'); // Move to analyzing to prevent concurrent captures
-
-    const canvas = document.createElement('canvas');
-    canvas.width = videoEl.videoWidth;
-    canvas.height = videoEl.videoHeight;
-    const context = canvas.getContext('2d');
-    if (!context) {
-        setScanState('scanning'); // Go back if canvas fails
-        return;
-    };
-    context.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-    const dataUri = canvas.toDataURL('image/jpeg', 0.85);
-
-    try {
-      const { data: { text } } = await Tesseract.recognize(dataUri, 'eng');
-      
-      if (!text || text.trim().length < 10) {
-        setIsClear(false);
-        setScanState('scanning'); // Not enough text, go back to scanning
-        return;
-      }
-      
-      setIsClear(true);
-      // Now in 'analyzing' state from before
-
-      const result = await summarizeText({ labelText: text });
-      
-      handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
-      
-    } catch(e) {
-        console.error("Label analysis failed:", e);
-        toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not read the label. Please try again.' });
-        setScanState('scanning'); // Go back to scanning on failure
-        setIsClear(false);
-    }
-  }, [handleScanSuccess, toast, scanState, scanMode]);
-
-  const onBarcodeSuccess = async (decodedText: string) => {
+  const onBarcodeSuccess = useCallback(async (decodedText: string) => {
     if (scanState === 'scanning' && scanMode === 'barcode') {
       setIsClear(true);
       setScanState('analyzing');
@@ -232,37 +135,112 @@ export default function ScannerClient() {
           setScanState('error');
       }
     }
-  };
+  }, [scanState, scanMode, handleScanSuccess, toast]);
   
-   // This effect handles the teardown of the scanner when the component unmounts.
-   useEffect(() => {
-    return () => {
-      stopScanner();
-    };
-  }, [stopScanner]);
+  const handleCaptureLabel = useCallback(async () => {
+    if (scanState !== 'scanning' || !videoElRef.current || scanMode !== 'label') return;
+    
+    const videoEl = videoElRef.current;
+    
+    // Move to analyzing to prevent concurrent captures, but don't show overlay yet.
+    // The visual state changes only on success.
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = videoEl.videoWidth;
+    canvas.height = videoEl.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) return;
 
-  useEffect(() => {
-    // This effect manages the camera lifecycle based on scanState and scanMode.
-    if (!scannerRef.current) {
-      scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-    }
+    context.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+    const dataUri = canvas.toDataURL('image/jpeg', 0.85);
 
-    const startScanner = async () => {
-      if (isStartingRef.current || (scannerRef.current && scannerRef.current.isScanning)) {
+    try {
+      const { data: { text, confidence } } = await Tesseract.recognize(dataUri, 'eng');
+      
+      // Only proceed if OCR is reasonably confident and finds enough text
+      if (confidence < 60 || !text || text.trim().length < 10) {
+        setIsClear(false);
         return;
       }
-      isStartingRef.current = true;
       
+      // Found something clear, stop OCR interval and show analyzing state
+      if (ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
+      setScanState('analyzing');
+      setIsClear(true);
+
+      const result = await summarizeText({ labelText: text });
+      
+      handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
+      
+    } catch(e) {
+        console.error("Label analysis failed:", e);
+        // Don't toast here, just keep trying.
+        setScanState('scanning'); // Go back to scanning on failure
+        setIsClear(false);
+    }
+  }, [handleScanSuccess, scanState, scanMode]);
+
+
+  const stopScanner = useCallback(async () => {
+    // Clear any running OCR interval
+    if (ocrIntervalRef.current) {
+      clearInterval(ocrIntervalRef.current);
+      ocrIntervalRef.current = null;
+    }
+
+    try {
+        if (scannerRef.current && scannerRef.current.isScanning) {
+          await scannerRef.current.stop();
+        }
+    } catch (e) {
+        console.warn("Could not stop barcode scanner", e);
+    }
+    
+    if (videoTrackRef.current) {
+        if (isFlashlightOn) {
+            try {
+               await videoTrackRef.current.applyConstraints({ advanced: [{ torch: false }] });
+            } catch (e) { console.warn("Could not turn off flashlight on stop", e) }
+        }
+        videoTrackRef.current.stop();
+        videoTrackRef.current = null;
+    }
+    
+    videoElRef.current = null;
+    setIsFlashlightOn(false);
+    setIsFlashlightAvailable(false);
+    setZoomCapabilities(null);
+    setShowZoomSlider(false);
+    setZoomLevel(1);
+    setIsClear(false);
+  }, [isFlashlightOn]);
+  
+  const resetScanner = useCallback(() => {
+    setShowPopup(false);
+    setScanResult(null);
+    setScanState('idle'); // Go to idle
+    stopScanner().then(() => {
+        // Trigger restart
+        setTimeout(() => setScanState('starting'), 50); 
+    });
+  }, [stopScanner]);
+
+  const startScanner = useCallback(async (mode: ScanMode) => {
+      setScanState('starting');
+      await stopScanner();
+
+      if (!scannerRef.current) return;
+
       try {
         const config = { facingMode: 'environment' };
         
         await scannerRef.current!.start(
             config,
-            scanMode === 'barcode' 
+            mode === 'barcode' 
                 ? { fps: 10, qrbox: { width: 300, height: 150 }, disableFlip: true }
-                : { fps: 5, disableFlip: true },
-            scanMode === 'barcode' ? onBarcodeSuccess : () => {},
-            () => {} // Ignore scan/error callback for label mode
+                : { fps: 5, disableFlip: true, qrbox: { width: 300, height: 300 } },
+            mode === 'barcode' ? onBarcodeSuccess : () => {}, // Use success callback for barcode mode
+            () => {} 
         );
 
         const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
@@ -274,32 +252,48 @@ export default function ScannerClient() {
             videoElRef.current = videoEl;
             setScanState('scanning');
 
-            if (scanMode === 'label') {
+            if (mode === 'label') {
                 if (ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
                 ocrIntervalRef.current = setInterval(handleCaptureLabel, 2500);
             }
         }
       } catch (err: any) {
-        console.error(`Error starting ${scanMode} scanner:`, err);
+        console.error(`Error starting ${mode} scanner:`, err);
         toast({ variant: 'destructive', title: 'Camera Error', description: `Could not start camera. Please grant permissions and try again.` });
         setScanState(err.name === 'NotAllowedError' ? 'permission_denied' : 'error');
-      } finally {
-        isStartingRef.current = false;
       }
+  }, [stopScanner, onBarcodeSuccess, handleCaptureLabel, toast]);
+
+
+  // Effect for initializing and cleaning up the scanner instance
+  useEffect(() => {
+    scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+
+    if (scanState === 'starting') {
+        startScanner(scanMode);
     }
     
-    if (scanState === 'starting') {
-        startScanner();
-    }
-  }, [scanState, scanMode, handleCaptureLabel, toast]);
+    // Cleanup function
+    return () => {
+        if (scannerRef.current) {
+            stopScanner();
+        }
+    };
+  }, []); // Runs only on mount and unmount
+
+  // Effect for handling state changes that need to trigger the scanner
+  useEffect(() => {
+      if (scanState === 'starting') {
+          startScanner(scanMode);
+      }
+  }, [scanState, scanMode, startScanner]);
 
 
   const handleModeChange = (newMode: ScanMode) => {
-    if (newMode === scanMode) return;
-    stopScanner().then(() => {
-        setScanMode(newMode);
-        setScanState('starting'); // Go to starting to re-init
-    });
+    if (newMode === scanMode || scanState === 'analyzing') return;
+    setScanMode(newMode);
+    // Setting state to 'starting' will trigger the effect to restart the scanner
+    setScanState('starting');
   }
 
   const toggleFlashlight = useCallback(() => {
@@ -503,3 +497,5 @@ export default function ScannerClient() {
     </div>
   );
 }
+
+    

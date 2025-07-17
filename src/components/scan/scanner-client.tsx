@@ -1,3 +1,4 @@
+
 'use client';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
@@ -177,7 +178,7 @@ export default function ScannerClient() {
 
 
   const handleCaptureLabel = useCallback(async () => {
-    if (scanState !== 'scanning' || !videoElRef.current) return;
+    if (scanState !== 'scanning' || !videoElRef.current || scanMode !== 'label') return;
     
     const videoEl = videoElRef.current;
     
@@ -216,10 +217,10 @@ export default function ScannerClient() {
         setScanState('scanning'); // Go back to scanning on failure
         setIsClear(false);
     }
-  }, [handleScanSuccess, toast, scanState]);
+  }, [handleScanSuccess, toast, scanState, scanMode]);
 
   const onBarcodeSuccess = async (decodedText: string) => {
-    if (scanState === 'scanning') {
+    if (scanState === 'scanning' && scanMode === 'barcode') {
       setIsClear(true);
       setScanState('analyzing');
       try {
@@ -233,10 +234,17 @@ export default function ScannerClient() {
     }
   };
   
+   // This effect handles the teardown of the scanner when the component unmounts.
+   useEffect(() => {
+    return () => {
+      stopScanner();
+    };
+  }, [stopScanner]);
+
   useEffect(() => {
-    // Main effect to manage the scanner lifecycle
+    // This effect manages the camera lifecycle based on scanState and scanMode.
     if (!scannerRef.current) {
-        scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+      scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
     }
 
     const startScanner = async () => {
@@ -283,19 +291,14 @@ export default function ScannerClient() {
     if (scanState === 'starting') {
         startScanner();
     }
-    
-    return () => {
-        stopScanner();
-    };
-  }, [scanState, scanMode]);
+  }, [scanState, scanMode, handleCaptureLabel, toast]);
 
 
   const handleModeChange = (newMode: ScanMode) => {
     if (newMode === scanMode) return;
-    setScanMode(newMode);
     stopScanner().then(() => {
-        setScanState('idle'); // Go to idle, then starting will trigger re-init
-        setTimeout(() => setScanState('starting'), 50);
+        setScanMode(newMode);
+        setScanState('starting'); // Go to starting to re-init
     });
   }
 

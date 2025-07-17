@@ -99,9 +99,10 @@ export default function ScannerClient() {
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isStartingRef = useRef(false);
 
   const { toast } = useToast();
-  
+
   const handleCaptureLabel = useCallback(async () => {
     if (scanState !== 'scanning' || !videoElRef.current || scanMode !== 'label') return;
     
@@ -197,6 +198,7 @@ export default function ScannerClient() {
         clearInterval(ocrIntervalRef.current);
         ocrIntervalRef.current = null;
     }
+
     try {
         if (scannerRef.current && scannerRef.current.isScanning) {
             await scannerRef.current.stop();
@@ -229,20 +231,21 @@ export default function ScannerClient() {
   }, [isFlashlightOn]);
 
   const startScanner = useCallback(async () => {
-    if (!scannerRef.current || scanState === 'scanning') return;
-
+    if (isStartingRef.current || (scannerRef.current && scannerRef.current.isScanning)) return;
+    
+    isStartingRef.current = true;
+    
     setScanState('starting');
 
     const qrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
       const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-      let size;
+      let size = Math.floor(minEdge * 0.9);
+      const finalSize = Math.max(size, 50); // Ensure size is at least 50px
+
       if (scanMode === 'barcode') {
-        size = Math.floor(minEdge * 0.8);
-        const finalSize = Math.max(size, 50);
         return { width: finalSize, height: Math.max(Math.floor(finalSize * 0.5), 50) };
       }
-      size = Math.floor(minEdge * 0.9);
-      return { width: Math.max(size, 50), height: Math.max(size, 50) };
+      return { width: finalSize, height: finalSize };
     };
 
     const config = {
@@ -255,7 +258,7 @@ export default function ScannerClient() {
     };
     
     try {
-      await scannerRef.current.start(
+      await scannerRef.current!.start(
         { facingMode: 'environment' },
         config,
         onBarcodeSuccess,
@@ -283,28 +286,32 @@ export default function ScannerClient() {
       console.error(`Error starting ${scanMode} scanner:`, err);
       toast({ variant: 'destructive', title: 'Camera Error', description: `Could not start camera. Please grant permissions and try again. ${err.message}` });
       setScanState(err.name === 'NotAllowedError' ? 'permission_denied' : 'error');
+    } finally {
+        isStartingRef.current = false;
     }
   }, [scanMode, onBarcodeSuccess, onScanError, toast, handleCaptureLabel]);
 
   useEffect(() => {
     if (!scannerRef.current) {
-        scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+      scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
     }
 
     if (scanState === 'idle') {
       startScanner();
     }
+  }, [scanState, scanMode, startScanner]);
 
-    // Cleanup function
+  useEffect(() => {
+    // This is the cleanup function that runs when the component unmounts.
     return () => {
-        if (scannerRef.current && scannerRef.current.isScanning) {
-            stopScanner().catch(err => console.error("Failed to stop scanner on cleanup", err));
-        }
         if (ocrIntervalRef.current) {
             clearInterval(ocrIntervalRef.current);
         }
+        if (scannerRef.current && scannerRef.current.isScanning) {
+            scannerRef.current.stop().catch(err => console.error("Failed to stop scanner on cleanup", err));
+        }
     };
-  }, [scanState, scanMode, startScanner, stopScanner]);
+  }, []);
 
   const resetScanner = useCallback(() => {
     setShowPopup(false);
@@ -313,7 +320,7 @@ export default function ScannerClient() {
   }, [stopScanner]);
 
   const handleModeChange = (newMode: ScanMode) => {
-    if (newMode === scanMode || scanState === 'analyzing') return;
+    if (newMode === scanMode || scanState === 'analyzing' || isStartingRef.current) return;
     setScanMode(newMode);
     stopScanner(); // Will trigger effect to restart in new mode
   }
@@ -520,5 +527,3 @@ export default function ScannerClient() {
     </div>
   );
 }
-
-    

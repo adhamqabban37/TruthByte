@@ -144,47 +144,6 @@ export default function ScannerClient() {
     setIsClear(false);
   }, []);
 
-  const handleScanSuccess = useCallback((result: AnalyzeOutput) => {
-    if (result.method === 'none' || !result.analysis) {
-      console.warn("Analysis failed or returned no data.", result.error);
-      toast({
-        variant: 'destructive',
-        title: 'Analysis Failed',
-        description: result.error || 'Could not analyze the product. Please try again.',
-      });
-      setScanState('scanning'); 
-      setIsClear(false);
-      
-      // If it was OCR, restart the interval
-      if (result.method === 'ocr') {
-         if (ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
-         ocrIntervalRef.current = setInterval(handleCaptureLabel, 2500);
-      }
-      return;
-    }
-    
-    setScanResult(result);
-    setScanState('success');
-    setShowPopup(true);
-  }, [toast, handleCaptureLabel]);
-
-
-  const onBarcodeSuccess = useCallback(async (decodedText: string) => {
-    // Check state to prevent multiple triggers
-    if (scanState === 'scanning' && scanMode === 'barcode') {
-      setIsClear(true);
-      setScanState('analyzing');
-      try {
-        const result = await analyzeBarcode({ barcode: decodedText });
-        handleScanSuccess({...result, barcode: decodedText, method: 'barcode'});
-      } catch(e) {
-          console.error("Barcode analysis failed:", e);
-          toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not analyze the barcode.' });
-          setScanState('error');
-      }
-    }
-  }, [scanState, scanMode, handleScanSuccess, toast]);
-  
   const handleCaptureLabel = useCallback(async () => {
     if (scanState !== 'scanning' || !videoElRef.current || scanMode !== 'label') return;
     
@@ -202,13 +161,11 @@ export default function ScannerClient() {
     try {
       const { data: { text, confidence } } = await Tesseract.recognize(dataUri, 'eng');
       
-      // Check for reasonable confidence and text length
       if (confidence < 60 || !text || text.trim().length < 10) {
         setIsClear(false);
         return;
       }
       
-      // Stop trying to scan once we have a good candidate
       if (ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
       
       setScanState('analyzing');
@@ -216,24 +173,64 @@ export default function ScannerClient() {
 
       const result = await summarizeText({ labelText: text });
       
+      // The success handler will be called from here
       handleScanSuccess({ ...result, productImageUrl: dataUri, method: 'ocr' });
       
     } catch(e) {
         console.error("Label analysis failed:", e);
-        // Don't set to error, just allow retrying
         setScanState('scanning'); 
         setIsClear(false);
         if (ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
         ocrIntervalRef.current = setInterval(handleCaptureLabel, 2500);
     }
-  }, [handleScanSuccess, scanState, scanMode]);
+  }, [scanState, scanMode]);
+
+
+  const handleScanSuccess = useCallback((result: AnalyzeOutput) => {
+    if (result.method === 'none' || !result.analysis) {
+      console.warn("Analysis failed or returned no data.", result.error);
+      toast({
+        variant: 'destructive',
+        title: 'Analysis Failed',
+        description: result.error || 'Could not analyze the product. Please try again.',
+      });
+      setScanState('scanning'); 
+      setIsClear(false);
+      
+      if (result.method === 'ocr') {
+         if (ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
+         ocrIntervalRef.current = setInterval(handleCaptureLabel, 2500);
+      }
+      return;
+    }
+    
+    setScanResult(result);
+    setScanState('success');
+    setShowPopup(true);
+  }, [toast, handleCaptureLabel]);
+
+
+  const onBarcodeSuccess = useCallback(async (decodedText: string) => {
+    if (scanState === 'scanning' && scanMode === 'barcode') {
+      setIsClear(true);
+      setScanState('analyzing');
+      try {
+        const result = await analyzeBarcode({ barcode: decodedText });
+        handleScanSuccess({...result, barcode: decodedText, method: 'barcode'});
+      } catch(e) {
+          console.error("Barcode analysis failed:", e);
+          toast({ variant: 'destructive', title: 'Analysis Failed', description: 'Could not analyze the barcode.' });
+          setScanState('error');
+      }
+    }
+  }, [scanState, scanMode, handleScanSuccess, toast]);
 
 
   const startScanner = useCallback(async (mode: ScanMode) => {
       if (isStartingRef.current || !scannerRef.current) return;
       isStartingRef.current = true;
 
-      await stopScanner(); // Clean up previous scanner before starting a new one
+      await stopScanner();
       setScanState('starting');
 
       try {
@@ -284,26 +281,20 @@ export default function ScannerClient() {
 
 
   useEffect(() => {
-    // This effect runs only on mount to create the scanner instance.
     if (!scannerRef.current) {
         scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
     }
     
-    // Cleanup on unmount.
-    return () => {
-        stopScanner();
-        if (scannerRef.current) {
-            scannerRef.current.clear().catch(e => console.error("Failed to clear scanner on unmount", e));
-        }
-    };
-  }, [stopScanner]);
-
-  useEffect(() => {
-    // This effect handles starting the scanner when state is idle.
     if (scanState === 'idle') {
       startScanner(scanMode);
     }
-  }, [scanState, scanMode, startScanner]);
+    
+    return () => {
+        if (scannerRef.current && scannerRef.current.isScanning) {
+            stopScanner().catch(e => console.error("Failed to stop scanner on cleanup", e));
+        }
+    };
+  }, [scanState, scanMode, startScanner, stopScanner]);
 
 
   const handleModeChange = (newMode: ScanMode) => {
@@ -513,5 +504,3 @@ export default function ScannerClient() {
     </div>
   );
 }
-
-    

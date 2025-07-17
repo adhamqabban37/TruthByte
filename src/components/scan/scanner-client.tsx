@@ -83,7 +83,7 @@ function SummaryPopupContent({
 const SCANNER_REGION_ID = 'scanner-region';
 
 export default function ScannerClient() {
-  const [scanState, setScanState] = useState<ScanState>('starting');
+  const [scanState, setScanState] = useState<ScanState>('idle');
   const [scanMode, setScanMode] = useState<ScanMode>('barcode');
   const [scanResult, setScanResult] = useState<AnalyzeOutput | null>(null);
   const [showPopup, setShowPopup] = useState(false);
@@ -99,6 +99,7 @@ export default function ScannerClient() {
   const ocrIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const isStartingRef = useRef(false);
 
   const { toast } = useToast();
 
@@ -110,7 +111,6 @@ export default function ScannerClient() {
         title: 'Analysis Failed',
         description: result.error || 'Could not analyze the product. Please try again.',
       });
-      // Reset to allow another scan
       setScanState('scanning'); 
       setIsClear(false);
       return;
@@ -142,9 +142,6 @@ export default function ScannerClient() {
     
     const videoEl = videoElRef.current;
     
-    // Move to analyzing to prevent concurrent captures, but don't show overlay yet.
-    // The visual state changes only on success.
-    
     const canvas = document.createElement('canvas');
     canvas.width = videoEl.videoWidth;
     canvas.height = videoEl.videoHeight;
@@ -157,13 +154,11 @@ export default function ScannerClient() {
     try {
       const { data: { text, confidence } } = await Tesseract.recognize(dataUri, 'eng');
       
-      // Only proceed if OCR is reasonably confident and finds enough text
       if (confidence < 60 || !text || text.trim().length < 10) {
         setIsClear(false);
         return;
       }
       
-      // Found something clear, stop OCR interval and show analyzing state
       if (ocrIntervalRef.current) clearInterval(ocrIntervalRef.current);
       setScanState('analyzing');
       setIsClear(true);
@@ -174,15 +169,13 @@ export default function ScannerClient() {
       
     } catch(e) {
         console.error("Label analysis failed:", e);
-        // Don't toast here, just keep trying.
-        setScanState('scanning'); // Go back to scanning on failure
+        setScanState('scanning');
         setIsClear(false);
     }
   }, [handleScanSuccess, scanState, scanMode]);
 
 
   const stopScanner = useCallback(async () => {
-    // Clear any running OCR interval
     if (ocrIntervalRef.current) {
       clearInterval(ocrIntervalRef.current);
       ocrIntervalRef.current = null;
@@ -218,18 +211,19 @@ export default function ScannerClient() {
   const resetScanner = useCallback(() => {
     setShowPopup(false);
     setScanResult(null);
-    setScanState('idle'); // Go to idle
-    stopScanner().then(() => {
-        // Trigger restart
-        setTimeout(() => setScanState('starting'), 50); 
-    });
-  }, [stopScanner]);
+    setScanState('idle'); 
+  }, []);
 
   const startScanner = useCallback(async (mode: ScanMode) => {
+      if (isStartingRef.current) return;
+      isStartingRef.current = true;
+
       setScanState('starting');
       await stopScanner();
 
-      if (!scannerRef.current) return;
+      if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
+      }
 
       try {
         const config = { facingMode: 'environment' };
@@ -239,7 +233,7 @@ export default function ScannerClient() {
             mode === 'barcode' 
                 ? { fps: 10, qrbox: { width: 300, height: 150 }, disableFlip: true }
                 : { fps: 5, disableFlip: true, qrbox: { width: 300, height: 300 } },
-            mode === 'barcode' ? onBarcodeSuccess : () => {}, // Use success callback for barcode mode
+            mode === 'barcode' ? onBarcodeSuccess : () => {},
             () => {} 
         );
 
@@ -261,39 +255,32 @@ export default function ScannerClient() {
         console.error(`Error starting ${mode} scanner:`, err);
         toast({ variant: 'destructive', title: 'Camera Error', description: `Could not start camera. Please grant permissions and try again.` });
         setScanState(err.name === 'NotAllowedError' ? 'permission_denied' : 'error');
+      } finally {
+        isStartingRef.current = false;
       }
   }, [stopScanner, onBarcodeSuccess, handleCaptureLabel, toast]);
 
 
-  // Effect for initializing and cleaning up the scanner instance
   useEffect(() => {
-    scannerRef.current = new Html5Qrcode(SCANNER_REGION_ID, { verbose: false });
-
-    if (scanState === 'starting') {
-        startScanner(scanMode);
+    if (scanState === 'idle') {
+      startScanner(scanMode);
     }
-    
-    // Cleanup function
+  }, [scanState, scanMode, startScanner]);
+
+  useEffect(() => {
     return () => {
+        stopScanner();
         if (scannerRef.current) {
-            stopScanner();
+            scannerRef.current.clear();
         }
     };
-  }, []); // Runs only on mount and unmount
-
-  // Effect for handling state changes that need to trigger the scanner
-  useEffect(() => {
-      if (scanState === 'starting') {
-          startScanner(scanMode);
-      }
-  }, [scanState, scanMode, startScanner]);
+  }, [stopScanner]);
 
 
   const handleModeChange = (newMode: ScanMode) => {
     if (newMode === scanMode || scanState === 'analyzing') return;
     setScanMode(newMode);
-    // Setting state to 'starting' will trigger the effect to restart the scanner
-    setScanState('starting');
+    setScanState('idle');
   }
 
   const toggleFlashlight = useCallback(() => {
@@ -361,7 +348,7 @@ export default function ScannerClient() {
                   <AlertTitle>An Error Occurred</AlertTitle>
                   <AlertDescription>
                     Something went wrong. Please try again.
-                    <Button onClick={() => setScanState('starting')} className="mt-4 w-full">Try Again</Button>
+                    <Button onClick={() => setScanState('idle')} className="mt-4 w-full">Try Again</Button>
                   </AlertDescription>
               </Alert>
           </div>
@@ -497,5 +484,3 @@ export default function ScannerClient() {
     </div>
   );
 }
-
-    

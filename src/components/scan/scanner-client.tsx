@@ -233,7 +233,7 @@ export default function ScannerClient() {
             mode === 'barcode' 
                 ? { fps: 10, qrbox: { width: 300, height: 150 }, disableFlip: true }
                 : { fps: 5, disableFlip: true, qrbox: { width: 300, height: 300 } },
-            mode === 'barcode' ? onBarcodeSuccess : () => {},
+            onBarcodeSuccess, 
             () => {} 
         );
 

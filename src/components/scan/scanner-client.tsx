@@ -237,14 +237,16 @@ export default function ScannerClient() {
         const config = { facingMode: 'environment' };
         
         const qrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
-          if (mode === 'barcode') {
-            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const qrboxSize = Math.floor(minEdge * 0.8);
-            return { width: qrboxSize, height: Math.floor(qrboxSize * 0.5) };
-          }
           const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-          const qrboxSize = Math.floor(minEdge * 0.9);
-          return { width: qrboxSize, height: qrboxSize };
+          let qrboxSize = 0;
+          if (mode === 'barcode') {
+            qrboxSize = Math.floor(minEdge * 0.8);
+            const finalSize = Math.max(qrboxSize, 50);
+            return { width: finalSize, height: Math.max(Math.floor(finalSize * 0.5), 50) };
+          }
+          qrboxSize = Math.floor(minEdge * 0.9);
+          const finalSize = Math.max(qrboxSize, 50);
+          return { width: finalSize, height: finalSize };
         };
         
         await scannerRef.current.start(

@@ -35,11 +35,16 @@ Flag any of the following as low-quality or red-flag:
 - Processed oils (palm oil, canola oil, etc.)
 - Excess sodium, saturated fats
 
+Step-by-step analysis:
+1. Scan for red-flag ingredients.
+2. Check for quality boosters (organic, non-GMO).
+3. Evaluate overall processing level.
+
 Step 3: Health Rating Scale (1 to 10):
 Use a scalable and transparent rating system.
 - 1 = ultra-processed, low-nutrition
 - 10 = clean, organic, nutritionally dense
-Provide clear reasoning for the score.
+Provide clear reasoning for the score. The score must be a number between 1 and 10.
 
 Step 4: Generate Smart Summary
 Create a clear, human-readable summary that answers the question: "Why is this product good or bad for you?"
@@ -87,3 +92,5 @@ const summarizeTextFlow = ai.defineFlow(
     }
   }
 );
+
+    

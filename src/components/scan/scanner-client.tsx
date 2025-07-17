@@ -103,47 +103,6 @@ export default function ScannerClient() {
 
   const { toast } = useToast();
 
-  const stopScanner = useCallback(async () => {
-    if (ocrIntervalRef.current) {
-      clearInterval(ocrIntervalRef.current);
-      ocrIntervalRef.current = null;
-    }
-    
-    const html5Qrcode = scannerRef.current;
-    if (html5Qrcode && html5Qrcode.getState() === Html5QrcodeScannerState.SCANNING) {
-      try {
-        await html5Qrcode.stop();
-      } catch (e) {
-        console.warn("Could not stop barcode scanner", e);
-      }
-    }
-    
-    if (videoTrackRef.current) {
-        if (isFlashlightOn) {
-            try {
-               await videoTrackRef.current.applyConstraints({ advanced: [{ torch: false }] });
-            } catch (e) { console.warn("Could not turn off flashlight on stop", e) }
-        }
-        videoTrackRef.current.stop();
-        videoTrackRef.current = null;
-    }
-    
-    videoElRef.current = null;
-    setIsFlashlightOn(false);
-    setIsFlashlightAvailable(false);
-    setZoomCapabilities(null);
-    setShowZoomSlider(false);
-    setZoomLevel(1);
-    setIsClear(false);
-  }, [isFlashlightOn]);
-  
-  const resetScanner = useCallback(() => {
-    setShowPopup(false);
-    setScanResult(null);
-    setScanState('idle'); 
-    setIsClear(false);
-  }, []);
-
   const handleCaptureLabel = useCallback(async () => {
     if (scanState !== 'scanning' || !videoElRef.current || scanMode !== 'label') return;
     
@@ -185,7 +144,6 @@ export default function ScannerClient() {
     }
   }, [scanState, scanMode]);
 
-
   const handleScanSuccess = useCallback((result: AnalyzeOutput) => {
     if (result.method === 'none' || !result.analysis) {
       console.warn("Analysis failed or returned no data.", result.error);
@@ -225,12 +183,48 @@ export default function ScannerClient() {
     }
   }, [scanState, scanMode, handleScanSuccess, toast]);
 
+  const stopScanner = useCallback(async () => {
+    if (ocrIntervalRef.current) {
+      clearInterval(ocrIntervalRef.current);
+      ocrIntervalRef.current = null;
+    }
+    
+    const html5Qrcode = scannerRef.current;
+    if (html5Qrcode && html5Qrcode.isScanning) {
+      try {
+        await html5Qrcode.stop();
+      } catch (e) {
+        console.warn("Could not stop barcode scanner", e);
+      }
+    }
+    
+    if (videoTrackRef.current) {
+        if (isFlashlightOn) {
+            try {
+               await videoTrackRef.current.applyConstraints({ advanced: [{ torch: false }] });
+            } catch (e) { console.warn("Could not turn off flashlight on stop", e) }
+        }
+        videoTrackRef.current.stop();
+        videoTrackRef.current = null;
+    }
+    
+    const videoEl = document.getElementById(SCANNER_REGION_ID)?.querySelector('video');
+    if (videoEl) videoEl.srcObject = null;
+    
+    videoElRef.current = null;
+    setIsFlashlightOn(false);
+    setIsFlashlightAvailable(false);
+    setZoomCapabilities(null);
+    setShowZoomSlider(false);
+    setZoomLevel(1);
+    setIsClear(false);
+    setScanState('idle');
+  }, [isFlashlightOn]);
 
   const startScanner = useCallback(async (mode: ScanMode) => {
       if (isStartingRef.current || !scannerRef.current) return;
       isStartingRef.current = true;
 
-      await stopScanner();
       setScanState('starting');
 
       try {
@@ -279,7 +273,7 @@ export default function ScannerClient() {
       } finally {
         isStartingRef.current = false;
       }
-  }, [stopScanner, onBarcodeSuccess, handleCaptureLabel, toast]);
+  }, [onBarcodeSuccess, handleCaptureLabel, toast]);
 
 
   useEffect(() => {
@@ -292,17 +286,26 @@ export default function ScannerClient() {
     }
     
     return () => {
-        if (scannerRef.current && scannerRef.current.isScanning) {
-            stopScanner().catch(e => console.error("Failed to stop scanner on cleanup", e));
-        }
+      if (scannerRef.current && scannerRef.current.isScanning) {
+        stopScanner().catch(e => console.error("Failed to stop scanner on cleanup", e));
+      }
     };
   }, [scanState, scanMode, startScanner, stopScanner]);
 
+  const resetScanner = useCallback(async () => {
+    setShowPopup(false);
+    setScanResult(null);
+    if(scannerRef.current && scannerRef.current.isScanning) {
+       await stopScanner();
+    }
+    setScanState('idle'); 
+    setIsClear(false);
+  }, [stopScanner]);
 
   const handleModeChange = (newMode: ScanMode) => {
     if (newMode === scanMode || scanState === 'analyzing' || isStartingRef.current) return;
     setScanMode(newMode);
-    setScanState('idle');
+    stopScanner(); // Stop current scanner before switching
   }
 
   const toggleFlashlight = useCallback(() => {
